@@ -6,6 +6,7 @@ from qiskit_aer import AerSimulator
 # Inicializamos el simulador cuántico local
 simulator = AerSimulator()
 
+
 def simulate_bb84_iteration(num_qubits, intercept_prob, noise_rate, check_fraction, threshold):
     """
     Simula una iteración completa del protocolo BB84.
@@ -41,21 +42,13 @@ def simulate_bb84_iteration(num_qubits, intercept_prob, noise_rate, check_fracti
     eve_bases = np.random.randint(2, size=num_qubits)  # Base que Eve usará para medir cada qubit interceptado.
     eve_intercepted = np.random.rand(num_qubits) < intercept_prob  # Decide aleatoriamente si intercepta cada qubit según la probabilidad dada.
     
-
     # Este bloque intenta representar la acción de Eve:
-       # 1) Si usa base X, aplica H antes de medir.
-       # 2) Mide el qubit.
-       # 3) “Reenvía” el qubit en la base en la que midió.
-
     for i in range(num_qubits):
         if eve_intercepted[i]:
-            # Eve mide en su base aleatoria
-            if eve_bases[i] == 1: 
-                qc.h(i)
-            qc.measure(i, i) # El estado colapsa inevitablemente
-            # Eve reenvía el qubit en la base que ella midió
-            if eve_bases[i] == 1: 
-                qc.h(i)
+            # Si Eve usa base distinta → introduce error con probabilidad 0.5
+            if eve_bases[i] != alice_bases[i]:
+                if np.random.rand() < 0.5:
+                    qc.x(i)
             
     qc.barrier()
     
@@ -75,8 +68,7 @@ def simulate_bb84_iteration(num_qubits, intercept_prob, noise_rate, check_fracti
         qc.measure(i, i)
         
     # Ejecutamos el circuito
-    compiled_circuit = transpile(qc, simulator)
-    result = simulator.run(compiled_circuit, shots=1).result()
+    result = simulator.run(qc, shots=1).result()
     counts = result.get_counts()
     
     # Qiskit devuelve los bits en orden inverso, los ordenamos
@@ -125,58 +117,68 @@ def run_experiment():
     Corre experimentos variando el número de qubits para calcular y graficar probabilidades.
     """
     qubit_counts = [8, 20, 50, 80, 100]
-    iterations = 200  # Simulamos 200 veces cada caso para sacar porcentajes fiables
+    iterations = 2000  # Simulamos 2000 veces cada caso para sacar porcentajes fiables
     
     # Parámetros fijos para este experimento
     noise_rate = 0.05       # 5% de error por hardware
-    intercept_prob = 1.0    # Eve intercepta el 100% de los qubits (para ver detección máxima)
+    intercept_prob = 0.5    # Eve intercepta el 100% de los qubits (para ver detección máxima)
     check_fraction = 0.5    # Se usa la mitad de la clave sifted para comprobar espionaje.
     threshold = 0.12        # Si el error pasa del 12% (superior al ruido del 5%), asumen espionaje
     
     detection_probabilities = []  # Aquí guardaremos la probabilidad de detección para cada número de qubits
-    
+    undetection_probabilities = []  # Aquí guardaremos la probabilidad que no se detecte a Eve
     print("Iniciando simulación...")
     print("-" * 50)
     
     for n in qubit_counts:
-        detections = 0  # Contador de veces que se detecta a Eve
-        valid_runs = 0  # Contador de iteraciones válidas (donde Alice y Bob tienen al menos un bit sifted para comparar)
-        
-        for _ in range(iterations):  # Repetimos la simulación varias veces (200 veces) para obtener una estadística fiable
+        valid_runs = 0
+        eve_present_runs = 0
+        eve_detected_runs = 0
+        eve_undetected_runs = 0
+
+        for _ in range(iterations):
             result = simulate_bb84_iteration(
-                num_qubits=n, 
-                intercept_prob=intercept_prob, 
-                noise_rate=noise_rate, 
-                check_fraction=check_fraction, 
+                num_qubits=n,
+                intercept_prob=intercept_prob,
+                noise_rate=noise_rate,
+                check_fraction=check_fraction,
                 threshold=threshold
             )
-            
+
             if result is not None:
                 valid_runs += 1
-                if result['eve_detected']:
-                    detections += 1
 
-        # Calculamos la probabilidad de detección como el porcentaje de iteraciones válidas donde se detectó a Eve.
-        # por ejemplo, si valid_runs es 150 y detections es 120, entonces prob_detect será (120/150)*100 = 80%            
-        prob_detect = (detections / valid_runs) * 100 if valid_runs > 0 else 0
+                if result['eve_present']:
+                    eve_present_runs += 1
+                    if result['eve_detected']:
+                        eve_detected_runs += 1
+                    else:
+                        eve_undetected_runs += 1
+
+        prob_detect = (eve_detected_runs / eve_present_runs) * 100 if eve_present_runs > 0 else 0
+        prob_undetect = (eve_undetected_runs / eve_present_runs) * 100 if eve_present_runs > 0 else 0
+
         detection_probabilities.append(prob_detect)
-        
-        print(f"Qubits enviados: {n:3} | Probabilidad de detectar a Eve: {prob_detect:6.2f}%")
+        undetection_probabilities.append(prob_undetect)
 
+        print(f"Qubits enviados: {n:3} , P(detectada|Eve present): {prob_detect:6.2f}%")
+        print(f"Qubits enviados: {n:3} , P(NO detectada|Eve present): {prob_undetect:6.2f}%")
+    
     # Generación y exportación del gráfico
     plt.figure(figsize=(10, 6))
-    plt.plot(qubit_counts, detection_probabilities, marker='o', linestyle='-', color='b', linewidth=2)
-    plt.title('Probabilidad de detectar a Eve vs Número de Qubits Enviados\n(Protocolo BB84 - TFG)', fontsize=14)
-    plt.xlabel('Qubits Iniciales Enviados (Alice a Bob)', fontsize=12)
-    plt.ylabel('Probabilidad de Detección (%)', fontsize=12)
+    plt.plot(qubit_counts, detection_probabilities, marker='o', linestyle='-', label='Detectada')
+    plt.plot(qubit_counts, undetection_probabilities, marker='s', linestyle='--', label='No detectada')
+    plt.title('Detecció vs No detecció de Eve')
+    plt.xlabel('Qubits inicials enviats')
+    plt.ylabel('Probabilitat estant Eve present (%)')
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.ylim(0, 105)
-    
-    # Guarda el gráfico en la carpeta donde se ejecuta el script
-    plt.savefig('grafico_probabilidad_bb84.png', dpi=300, bbox_inches='tight')
+    plt.legend()
+    plt.savefig('probabilitat_Eve_perd_guanya_Eveintercepta50%qubits.png', dpi=300, bbox_inches='tight')
     print("-" * 50)
-    print("Simulación terminada. Gráfico exportado como 'grafico_probabilidad_bb84.png'")
+    print("Simulación terminada. Gráfico exportado como 'probabilitat_Eve_perd_guanya_Eveintercepta50%qubits.png'")
     plt.show()
+
 
 if __name__ == "__main__":
     run_experiment()
