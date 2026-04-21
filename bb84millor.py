@@ -1,40 +1,40 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from qiskit import QuantumCircuit, transpile
+from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 
 # Inicializamos el simulador cuántico local
 simulator = AerSimulator()
 
 
-def simulate_bb84_iteration(num_qubits, intercept_prob, noise_rate, check_fraction, threshold):
+def simulate_bb84_iteration(
+        num_qubits,
+        intercept_prob,
+        noise_rate,
+        check_fraction,
+        threshold):
     """
     Simula una iteración completa del protocolo BB84.
     """
-    # 1 qubit y 1 bit clásico por cada fotón enviado
     qc = QuantumCircuit(num_qubits, num_qubits)
     
-    # 1. ALICE PREPARA EL MENSAJE
+    # 1. ALICE PREPARA
     alice_bits = np.random.randint(2, size=num_qubits)
-    alice_bases = np.random.randint(2, size=num_qubits) # 0 = Rectilínea (Z), 1 = Diagonal (X)
-    
+    alice_bases = np.random.randint(2, size=num_qubits)
     # qc.x(i): 
       #  La puerta X es como un “flip” clásico:
       #  transforma |0⟩ en |1⟩
       #  transforma |1⟩ en |0⟩
-
-    for i in range(num_qubits):
-        if alice_bits[i] == 1:
-            qc.x(i) # Flip a |1>
-
+        for i in range(num_qubits):
+            if alice_bits[i] == 1:
+                qc.x(i)
     # qc.h(i):
       #  La puerta Hadamard H crea superposición y cambia entre bases.
       #  H|0⟩ = |+⟩
       #  H|1⟩ = |−⟩
-    
         if alice_bases[i] == 1:
-            qc.h(i) # Cambia a base diagonal |+> o |->
-            
+            qc.h(i)
+
     qc.barrier()
     
     # 2. EVE INTERCEPTA (Teorema de No Clonación)
@@ -107,78 +107,130 @@ def simulate_bb84_iteration(num_qubits, intercept_prob, noise_rate, check_fracti
     return {
         'eve_present': np.any(eve_intercepted),  # eve_present: True si Eve interceptó al menos un qubit.
         'eve_detected': eve_detected,  # eve_detected: True si la tasa de error supera el umbral, indicando posible espionaje.
+        'sifted_length': len(sifted_alice),
+        'num_check': num_check,
         'error_rate': error_rate  # error_rate: La tasa de error calculada a partir de la muestra de comprobación.
     }
 
 
-# Esta función repite la simulación para varios números de qubits y luego grafica el resultado.
-def run_experiment():
+def run_experiment(fixed_qubits_mode=True):
     """
-    Corre experimentos variando el número de qubits para calcular y graficar probabilidades.
+    Ejecuta el experimento dependiendo del modo seleccionado.
     """
-    qubit_counts = [8, 20, 50, 80, 100]
-    iterations = 2000  # Simulamos 2000 veces cada caso para sacar porcentajes fiables
+    # Parámetros fijos de entorno (Escenario Ideal)
+    noise_rate = 0.00
+    intercept_prob = 1.0
+    check_fraction = 0.5
+    # En un entorno ideal (0 ruido), cualquier error > 0 significa que Eve está ahí.
+    threshold = 0.00
     
-    # Parámetros fijos para este experimento
-    noise_rate = 0.05       # 5% de error por hardware
-    intercept_prob = 0.5    # Eve intercepta el 100% de los qubits (para ver detección máxima)
-    check_fraction = 0.5    # Se usa la mitad de la clave sifted para comprobar espionaje.
-    threshold = 0.12        # Si el error pasa del 12% (superior al ruido del 5%), asumen espionaje
-    
-    detection_probabilities = []  # Aquí guardaremos la probabilidad de detección para cada número de qubits
-    undetection_probabilities = []  # Aquí guardaremos la probabilidad que no se detecte a Eve
-    print("Iniciando simulación...")
     print("-" * 50)
     
-    for n in qubit_counts:
-        valid_runs = 0
-        eve_present_runs = 0
-        eve_detected_runs = 0
-        eve_undetected_runs = 0
+    if fixed_qubits_mode:
+        print("MODO 1: Qubits fijos, variando el número de iteraciones R")
+        print("Evaluando la probabilidad ACUMULADA de detectar a Eve en múltiples intentos.")
+        
+        n_fixed = 16  # Número de qubits por iteración (bajo para que Eve pueda escapar 1 vez y veamos la curva)
+        R_values = [1, 2, 3, 5, 8, 12, 20]  # Diferentes cantidades de iteraciones acumuladas
+        meta_experiments = 1000  # Cuántas veces repetimos el bloque de R iteraciones para sacar la estadística
 
-        for _ in range(iterations):
-            result = simulate_bb84_iteration(
-                num_qubits=n,
-                intercept_prob=intercept_prob,
-                noise_rate=noise_rate,
-                check_fraction=check_fraction,
-                threshold=threshold
-            )
+        emp_probs = []
+        teo_probs = []
+        
+        for R in R_values:
+            detected_count = 0
+            
+            # Simulamos el bloque entero de R iteraciones varias veces
+            for _ in range(meta_experiments):
+                caught_in_this_block = False
+                for _ in range(R):
+                    res = simulate_bb84_iteration(n_fixed,
+                                                  intercept_prob,
+                                                  noise_rate,
+                                                  check_fraction,
+                                                  threshold)
+                    if res and res['eve_detected']:
+                        caught_in_this_block = True
+                        break  # Si la pillamos una vez en las R iteraciones, ya está detectada
+                
+                if caught_in_this_block:
+                    detected_count += 1
+            
+            # Cálculo empírico
+            p_emp = detected_count / meta_experiments
+            emp_probs.append(p_emp * 100)
+            
+            # Cálculo teórico acumulado: P = 1 - (3/4)^(R * s_promedio)
+            s_promedio = n_fixed * 0.5 * check_fraction
+            p_teo = 1 - (0.75)**(R * s_promedio)
+            teo_probs.append(p_teo * 100)
+            
+            print(f"Iteraciones (R): {R:2} | Empírica: {p_emp*100:6.2f}% | Teórica: {p_teo*100:6.2f}%")
+            
+        # Gráfica Modo 1
+        plt.figure(figsize=(10, 6))
+        plt.plot(R_values, emp_probs, marker='o', label='Probabilidad Empírica Acumulada')
+        plt.plot(R_values, teo_probs, marker='s', linestyle='--', label='Probabilidad Teórica ($1 - (3/4)^{Rs}$)')
+        plt.title(f'Detección de Eve acumulada tras R iteraciones (n={n_fixed} qubits/iter)')
+        plt.xlabel('Número de Iteraciones acumuladas (R)')
+        plt.ylabel('Probabilidad de Detección (%)')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        plt.savefig('prob_R_variable.png', dpi=300, bbox_inches='tight')
+        plt.show()
 
-            if result is not None:
-                valid_runs += 1
+    else:
+        print("MODO 2: Iteraciones R fijas (como tamaño de muestra), variando los Qubits n")
+        print("Evaluando la probabilidad de detectar a Eve en una sola ejecución.")
+        
+        qubit_counts = [4, 8, 16, 32, 64, 128]
+        iterations = 2000  # Tamaño de la muestra estadística
+        
+        emp_probs = []
+        teo_probs = []
+        
+        for n in qubit_counts:
+            detected_count = 0
+            valid_runs = 0
+            total_s_in_valid_runs = 0
+            
+            for _ in range(iterations):
+                res = simulate_bb84_iteration(n,
+                                              intercept_prob,
+                                              noise_rate,
+                                              check_fraction,
+                                              threshold)
+                if res:
+                    valid_runs += 1
+                    total_s_in_valid_runs += res['num_check']
+                    if res['eve_detected']:
+                        detected_count += 1
+            
+            p_emp = detected_count / valid_runs if valid_runs > 0 else 0
+            emp_probs.append(p_emp * 100)
+            
+            # Cálculo teórico por iteración: P = 1 - (3/4)^s
+            # Usamos el promedio real de 's' que se generó para ser más exactos
+            s_promedio_real = total_s_in_valid_runs / valid_runs if valid_runs > 0 else (n * 0.5 * check_fraction)
+            p_teo = 1 - (0.75)**(s_promedio_real)
+            teo_probs.append(p_teo * 100)
+            
+            print(f"Qubits (n): {n:3} | Empírica: {p_emp*100:6.2f}% | Teórica: {p_teo*100:6.2f}%")
 
-                if result['eve_present']:
-                    eve_present_runs += 1
-                    if result['eve_detected']:
-                        eve_detected_runs += 1
-                    else:
-                        eve_undetected_runs += 1
-
-        prob_detect = (eve_detected_runs / eve_present_runs) * 100 if eve_present_runs > 0 else 0
-        prob_undetect = (eve_undetected_runs / eve_present_runs) * 100 if eve_present_runs > 0 else 0
-
-        detection_probabilities.append(prob_detect)
-        undetection_probabilities.append(prob_undetect)
-
-        print(f"Qubits enviados: {n:3} , P(detectada|Eve present): {prob_detect:6.2f}%")
-        print(f"Qubits enviados: {n:3} , P(NO detectada|Eve present): {prob_undetect:6.2f}%")
-    
-    # Generación y exportación del gráfico
-    plt.figure(figsize=(10, 6))
-    plt.plot(qubit_counts, detection_probabilities, marker='o', linestyle='-', label='Detectada')
-    plt.plot(qubit_counts, undetection_probabilities, marker='s', linestyle='--', label='No detectada')
-    plt.title('Detecció vs No detecció de Eve')
-    plt.xlabel('Qubits inicials enviats')
-    plt.ylabel('Probabilitat estant Eve present (%)')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.ylim(0, 105)
-    plt.legend()
-    plt.savefig('probabilitat_Eve_perd_guanya_Eveintercepta50%qubits.png', dpi=300, bbox_inches='tight')
-    print("-" * 50)
-    print("Simulación terminada. Gráfico exportado como 'probabilitat_Eve_perd_guanya_Eveintercepta50%qubits.png'")
-    plt.show()
+        # Gráfica Modo 2
+        plt.figure(figsize=(10, 6))
+        plt.plot(qubit_counts, emp_probs, marker='o', label='Probabilidad Empírica (1 iteración)')
+        plt.plot(qubit_counts, teo_probs, marker='s', linestyle='--', label='Probabilidad Teórica ($1 - (3/4)^s$)')
+        plt.title(f'Detección de Eve en una ejecución vs Número de Qubits (Evaluado sobre {iterations} muestras)')
+        plt.xlabel('Número de Qubits enviados (n)')
+        plt.ylabel('Probabilidad de Detección (%)')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.legend()
+        plt.savefig('prob_n_variable.png', dpi=300, bbox_inches='tight')
+        plt.show()
 
 
 if __name__ == "__main__":
-    run_experiment()
+    # Cambiar esto a False para ver el comportamiento variando los Qubits
+    FIXED_QUBITS_MODE = False
+    run_experiment(fixed_qubits_mode=FIXED_QUBITS_MODE)
