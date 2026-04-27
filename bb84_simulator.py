@@ -1,10 +1,37 @@
 import numpy as np
 from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
+from scipy.stats import binom
 
 # Inicializamos el simulador cuántico local. 
 # Esto crea un "ordenador cuántico virtual" en tu PC para ejecutar el circuito.
 simulator = AerSimulator()
+
+
+def compute_threshold(s_simulacion, 
+                      noise_rate, 
+                      alpha):
+    
+    """
+    Calcula el umbral T de errores tolerados para un nivel de falsos positivos (alpha).
+    """
+    if noise_rate == 0.0 or alpha == 0.0:
+        return 0
+    # ppf devuelve el valor máximo T tal que la probabilidad acumulada sea <= 1 - alpha
+    return int(binom.ppf(1 - alpha, s_simulacion, noise_rate))
+
+
+def compute_detection_metrics(eve_present,
+                              eve_detected):
+    """
+    Calcula las métricas de evaluación (Confusion Matrix)
+    """
+    return {
+        'TP': int(eve_present and eve_detected),  # Verdadero Positivo
+        'FP': int(not eve_present and eve_detected),  # Falso Positivo
+        'TN': int(not eve_present and not eve_detected),  # Verdadero Negativo
+        'FN': int(eve_present and not eve_detected)  # Falso Negativo
+    }
 
 
 def simulate_bb84_iteration(
@@ -12,7 +39,7 @@ def simulate_bb84_iteration(
         intercept_prob,
         noise_rate,
         check_fraction,
-        threshold):
+        alpha):
     """
     Simula una iteración completa del protocolo BB84.
     """
@@ -53,7 +80,7 @@ def simulate_bb84_iteration(
     # ---------------------------------------------------------
     eve_bases = np.random.randint(2, size=num_qubits)
     eve_intercepted = np.random.rand(num_qubits) < intercept_prob 
-    
+    eve_present = np.any(eve_intercepted) # Para métricas de evaluación
     for i in range(num_qubits):
         if eve_intercepted[i]:
             # Si Eve adivina que es base diagonal, aplica H para "alinear" su equipo de medición.
@@ -76,12 +103,12 @@ def simulate_bb84_iteration(
     for i in range(num_qubits):
         # Simulamos que el ambiente o el cable de fibra óptica alteran los qubits al azar.
         if np.random.rand() < noise_rate:
-            qc.x(i) # Error de Bit-Flip: cambia 0 por 1 o viceversa (afecta la base rectilínea).
+            qc.x(i)  # Error de Bit-Flip: cambia 0 por 1 o viceversa (afecta la base rectilínea).
         if np.random.rand() < noise_rate:
-            qc.z(i) # Error de Phase-Flip: altera la fase (afecta la base diagonal).
-            
-    qc.barrier() # Fin del viaje por la fibra óptica.
-    
+            qc.z(i)  # Error de Phase-Flip: altera la fase (afecta la base diagonal).
+
+    qc.barrier()  # Fin del viaje por la fibra óptica.
+
     # ---------------------------------------------------------
     # 4. BOB RECIBE Y MIDE
     # ---------------------------------------------------------
@@ -129,7 +156,7 @@ def simulate_bb84_iteration(
     
     # Si por mala suerte no coincidieron en ninguna base, abortan.
     if len(sifted_alice) == 0:
-        return None 
+        return None
         
     # ---------------------------------------------------------
     # 6. COMPROBACIÓN DE ESPIONAJE
@@ -145,13 +172,17 @@ def simulate_bb84_iteration(
     errors = np.sum(check_alice != check_bob)
     error_rate = errors / s_simulacion
     
-    # Si la tasa de errores es mayor al umbral de ruido normal esperado, concluyen que Eve está ahí.
-    eve_detected = error_rate > threshold
+    # Cálculo del Umbral Estadístico (T) y métricas
+    T = compute_threshold(s_simulacion, noise_rate, alpha)
+    eve_detected = errors > T
+    metrics = compute_detection_metrics(eve_present, eve_detected)
     
     return {
         'eve_present': np.any(eve_intercepted),
         'eve_detected': eve_detected,
+        'metrics': metrics,
         'sifted_length': len(sifted_alice),
         's_simulacion': s_simulacion,
-        'error_rate': error_rate
+        'threshold_T': T,
+        'errors_count': errors
     }

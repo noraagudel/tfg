@@ -1,9 +1,45 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
+from scipy.stats import binom
 from bb84_simulator import simulate_bb84_iteration
+from bb84_simulator import compute_threshold
+from grafics import plot_confusion_matrix, plot_static_threshold, plot_error_distributions
+
+
+# Inicializamos el simulador cuántico local.
+
 simulator = AerSimulator()
+
+
+# =====================================================================
+# FUNCIONES AUXILIARES TEÓRICAS 
+# =====================================================================
+
+
+def theoretical_detection_prob(s,
+                               p_eve,
+                               noise_rate,
+                               alpha):
+    """
+    Calcula la probabilidad teórica de detectar a Eve en UNA iteración.
+    Separa limpiamente la lógica del caso ideal vs ruido.
+    """
+    if noise_rate == 0.0:
+        # Caso ideal
+        return 1.0 - (1.0 - 0.25 * p_eve)**s
+    
+    # Caso con ruido: Cálculo combinado de probabilidad de error
+    p_err_eve = 0.25 * p_eve  # p_eve es la fracción de qubits interceptados, y cada uno tiene 25% de chance de error
+    # XOR probabilístico: Error solo por ruido + Error solo por Eve
+    p_err_total = noise_rate * (1 - p_err_eve) + (1 - noise_rate) * p_err_eve
+    
+    # Recalculamos T igual que lo haría el simulador
+    T = compute_threshold(s, noise_rate, alpha)
+    
+    # La probabilidad de detectarla es la prob de que los errores superen T
+    # Usamos 1 - CDF (Función de distribución acumulada)
+    return 1.0 - binom.cdf(T, s, p_err_total)
 
 # =====================================================================
 # 2. LAS FUNCIONES DE EXPERIMENTO
@@ -15,7 +51,7 @@ def experiment_variable_R(n_fixed,
                           numero_ensayos,
                           intercept_prob,
                           noise_rate,
-                          threshold):
+                          alpha):
     
     """
     MODO 1
@@ -33,6 +69,7 @@ def experiment_variable_R(n_fixed,
     check_fraction = 0.5
     emp_probs = []
     teo_probs = []
+    all_metrics = []
     
     for R in R_values:
         detected_count = 0
@@ -45,20 +82,30 @@ def experiment_variable_R(n_fixed,
                                               intercept_prob,
                                               noise_rate,
                                               check_fraction,
-                                              threshold)
-                if res and res['eve_detected']:
-                    caught = True
-                    break  # Si detectamos a Eve en alguna iteración, ya contamos como detectada para este ensayo
+                                              alpha)
+                if res:
+                    all_metrics.append(res['metrics'])
+               
+                    if res['eve_detected']:
+                        caught = True
+                        break  # Si detectamos a Eve en alguna iteración, ya contamos como detectada para este ensayo
             if caught:
                 detected_count += 1
             
         p_emp = detected_count / numero_ensayos
         emp_probs.append(p_emp * 100)
         
-        # CÁLCULO TEÓRICO (Ojo: Ajustado por si p < 1)
-        s_promedio = (n_fixed * 0.5) * check_fraction
-        prob_error_por_bit = intercept_prob * 0.25  # Si Eve intercepta menos, hay menos error
-        p_teo = 1 - (1 - prob_error_por_bit)**(R * s_promedio)
+        # CÁLCULO TEÓRICO 
+        s_promedio = int(n_fixed * 0.5) * check_fraction
+        if s_promedio == 0:
+            s_promedio = 1  # Evitamos división por cero en casos extremos
+        
+        # Probabilidad de detectar a Eve en al menos una de las R iteraciones
+        p_detect_single = theoretical_detection_prob(s_promedio,
+                                                     intercept_prob,
+                                                     noise_rate,
+                                                     alpha)
+        p_teo = 1 - (1 - p_detect_single)**R
         teo_probs.append(p_teo * 100)
         
     plt.figure(figsize=(10, 6))
@@ -72,12 +119,14 @@ def experiment_variable_R(n_fixed,
     plt.savefig('prob_R_variable.png', dpi=300, bbox_inches='tight')
     plt.show()
 
+    plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión (R variable, n={n_fixed})")
+
 
 def experiment_variable_n(qubit_counts,
                           numero_ensayos,
                           intercept_prob,
                           noise_rate,
-                          threshold):
+                          alpha):
     """
     MODO 2
     Aquí se simula el caso donde el número de iteraciones es fijo (iterations) y lo que varía es el número de qubits.
@@ -93,7 +142,8 @@ def experiment_variable_n(qubit_counts,
     
     check_fraction = 0.5
     emp_probs = []
-    teo_probs = [0.0] * len(qubit_counts)
+    teo_probs = []
+    all_metrics = []
 
     for n in qubit_counts:
         detected_count = 0
@@ -107,7 +157,7 @@ def experiment_variable_n(qubit_counts,
                                           intercept_prob,
                                           noise_rate,
                                           check_fraction,
-                                          threshold)
+                                          alpha)
             if res:
                 valid_runs += 1
                 if res['eve_detected']:
@@ -115,10 +165,13 @@ def experiment_variable_n(qubit_counts,
                     
                 # Calculamos la probabilidad teórica para el 's' EXACTO de esta ronda
                 s_de_esta_ronda = res['s_simulacion']
-                print(f"Ronda con n={n} qubits, s={s_de_esta_ronda} bits para comprobación.")
-                prob_error_por_bit = intercept_prob * 0.25
-                suma_p_teo_exacta += 1 - (1 - prob_error_por_bit)**(s_de_esta_ronda)
+                suma_p_teo_exacta += theoretical_detection_prob(s_de_esta_ronda,
+                                                                intercept_prob,
+                                                                noise_rate,
+                                                                alpha)
                 
+                all_metrics.append(res['metrics'])
+        
         if valid_runs > 0:
             p_emp = detected_count / valid_runs
         else:
@@ -145,13 +198,15 @@ def experiment_variable_n(qubit_counts,
     plt.legend()
     plt.savefig('prob_n_variable.png', dpi=300, bbox_inches='tight')
     plt.show()
+    
+    plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión (n variable, 1 unica ejecución, iteraciones = {numero_ensayos})")
 
 
 def experiment_variable_p_and_n(qubit_counts,
                                 numero_ensayos,
                                 p_values,
                                 noise_rate,
-                                threshold):
+                                alpha):
     """
     CASO C (0% Ruido, Eve variable (p))
      - qubit_counts: Lista de diferentes números de qubits a probar
@@ -179,6 +234,7 @@ def experiment_variable_p_and_n(qubit_counts,
         print(f"Simulando para n = {n}...")
         emp_probs = []
         teo_probs = []
+        all_metrics = []
         
         # Color asignado a este tamaño de n
         color_actual = colores[idx % len(colores)]
@@ -186,25 +242,27 @@ def experiment_variable_p_and_n(qubit_counts,
         for p in p_values:
             detected_count = 0
             valid_runs = 0
-            suma_p_teo_exacta = 0.0 
-            
-            prob_error_por_bit = p * 0.25
+            suma_p_teo_exacta = 0.0
             
             for _ in range(numero_ensayos):
                 res = simulate_bb84_iteration(n,
                                               p,
                                               noise_rate,
                                               check_fraction,
-                                              threshold)
+                                              alpha)
                 
                 if res:
+                    all_metrics.append(res['metrics'])
                     valid_runs += 1
                     if res['eve_detected']:
                         detected_count += 1
                         
                     # CÁLCULO TEÓRICO EXACTO (Evaluado por ronda)
                     s_de_esta_ronda = res['s_simulacion']
-                    suma_p_teo_exacta += 1 - (1 - prob_error_por_bit)**(s_de_esta_ronda)
+                    suma_p_teo_exacta += theoretical_detection_prob(s_de_esta_ronda,
+                                                                    p,
+                                                                    noise_rate,
+                                                                    alpha)
                         
             # Promedio empírico
             if valid_runs > 0:
@@ -246,6 +304,7 @@ def experiment_variable_p_and_n(qubit_counts,
     plt.savefig('prob_deteccion_p_y_n.png', dpi=300, bbox_inches='tight')
     plt.show()
 
+    plot_confusion_matrix(all_metrics, title="Matriz de Confusión Global (Eve y n variables)")
 
 # =====================================================================
 # 3. EL ORQUESTADOR (Donde decides qué estudiar hoy)
@@ -254,13 +313,13 @@ def experiment_variable_p_and_n(qubit_counts,
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "A"  # Cambia esto a "B" o "C"
+    CASO_A_ESTUDIAR = "B"  # Cambia esto a "B" o "C"
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
         noise = 0.0
         p_eve = 1.0
-        umbral = 0.0  # Cualquier error es Eve
+        alpha_fp = 0.0  # Cualquier error es Eve
         
         # A.1: R variable
         experiment_variable_R(n_fixed=16,
@@ -268,38 +327,49 @@ if __name__ == "__main__":
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
-                              threshold=umbral)
+                              alpha=alpha_fp)
         
         # A.2: n variable
         experiment_variable_n(qubit_counts=[1, 4, 8, 16, 32, 64, 128],
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
-                              threshold=umbral)
+                              alpha=alpha_fp)
 
     elif CASO_A_ESTUDIAR == "B":
         # CASO B: 2% Ruido, 100% Intercepción
         noise = 0.02
         p_eve = 1.0
-        # ¡IMPORTANTE! El umbral ya no puede ser 0.0
-        umbral = 0.05
+        # Aceptamos un 5% de Falsos Positivos
+        alpha_fp = 0.05
+
+        print("--- Generando gráficas teóricas previas ---")
+        # 1. Mostramos cómo se comporta el umbral en general
+        plot_static_threshold(s_simulacion=50)
+        
+        # 2. Mostramos la distribución de errores para este escenario concreto (asumiendo s=50 para la foto)
+        plot_error_distributions(s_simulacion=50, 
+                                 noise_rate=noise, 
+                                 intercept_prob=p_eve, 
+                                 alpha=alpha_fp)
         
         experiment_variable_R(n_fixed=16,
                               R_values=[1, 2, 3, 5, 8, 12, 20],
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
-                              threshold=umbral)
+                              alpha=alpha_fp)
+                              
         experiment_variable_n(qubit_counts=[1, 4, 8, 16, 32, 64, 128],
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
-                              threshold=umbral)
+                              alpha=alpha_fp)
 
     elif CASO_A_ESTUDIAR == "C":
         # CASO C: 0% Ruido, Eve variable (p)
         noise = 0.0
-        umbral = 0.0
+        alpha_fp = 0.0
         
         qubit_counts_lista = [1, 6, 8, 12, 20]
         p_valores_lista = np.linspace(0.0, 1.0, 11)  # [0.0, 0.1, 0.2, ..., 1.0]
@@ -308,6 +378,6 @@ if __name__ == "__main__":
             qubit_counts=qubit_counts_lista,
             numero_ensayos=1000,
             p_values=p_valores_lista,
-            noise_rate=0.0,
-            threshold=0.0
+            noise_rate=noise,
+            alpha=alpha_fp
         )
