@@ -45,6 +45,127 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     plt.show()
 
 
+def plot_roc_curve(y_true, y_scores, title="Curva ROC - Detección de Eve"):
+    """
+    Grafica la curva ROC y calcula el AUC sin depender de librerías externas.
+    - y_true: Lista booleana con la Realidad (True si Eve estaba, False si era seguro).
+    - y_scores: Lista con las Tasas de Error medidas en cada simulación.
+    """
+    y_true = np.array(y_true)
+    y_scores = np.array(y_scores)
+    
+    # Contamos los positivos y negativos reales
+    P = np.sum(y_true)
+    N = len(y_true) - P
+    
+    if P == 0 or N == 0:
+        print("Error: Para hacer una curva ROC necesitas simulaciones TANTO con Eve como sin Eve.")
+        return
+        
+    # Extraemos todos los posibles umbrales ordenados de mayor a menor
+    umbrales = np.sort(np.unique(y_scores))[::-1]
+    # Añadimos límites extremos para que la gráfica toque el (0,0) y el (1,1)
+    umbrales = np.concatenate(([max(umbrales) + 0.1], umbrales, [min(umbrales) - 0.1]))
+    
+    tpr_list = []
+    fpr_list = []
+    
+    for T in umbrales:
+        # Predecimos "Ataque" si la tasa de error supera el umbral T
+        prediccion_ataque = y_scores >= T
+        
+        TP = np.sum(prediccion_ataque & y_true)
+        FP = np.sum(prediccion_ataque & ~y_true)
+        
+        tpr_list.append(TP / P)
+        fpr_list.append(FP / N)
+        
+    # Calculamos el AUC usando la regla del trapecio (integración numérica)
+    # Ordenamos de menor a mayor FPR para integrar correctamente
+    indices_orden = np.argsort(fpr_list)
+    fpr_sorted = np.array(fpr_list)[indices_orden]
+    tpr_sorted = np.array(tpr_list)[indices_orden]
+    # Usamos np.trapezoid para las versiones nuevas de NumPy
+    try:
+        auc_value = np.trapezoid(tpr_sorted, fpr_sorted)
+    except AttributeError:
+        # Mantenemos np.trapz por si alguna vez ejecutas el código en un ordenador con un NumPy antiguo
+        auc_value = np.trapz(tpr_sorted, fpr_sorted)
+    
+    # Dibujamos la gráfica
+    plt.figure(figsize=(8, 6))
+    plt.plot(fpr_sorted, tpr_sorted, color='darkorange', lw=2, 
+             label=f'Curva ROC (AUC = {auc_value:.3f})')
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Azar (AUC = 0.5)')
+    
+    plt.xlim([-0.02, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Tasa de Falsos Positivos (FPR) - Falsas Alarmas')
+    plt.ylabel('Tasa de Verdaderos Positivos (TPR) - Eve Detectada')
+    plt.title(title)
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC"):
+    """
+    Dibuja varias curvas ROC en la misma gráfica para comparar escenarios.
+    - dict_of_results: Un diccionario donde la clave es el nombre de la leyenda (ej: "n=16")
+                       y el valor es una tupla (y_true, y_scores).
+    """
+    plt.figure(figsize=(9, 7))
+    colores = plt.cm.tab10.colors  # Paleta de colores bonita
+    
+    for idx, (label_name, (y_true, y_scores)) in enumerate(dict_of_results.items()):
+        y_true = np.array(y_true)
+        y_scores = np.array(y_scores)
+        
+        P = np.sum(y_true)
+        N = len(y_true) - P
+        
+        if P == 0 or N == 0:
+            continue # Saltamos si no hay mezcla de casos
+            
+        umbrales = np.sort(np.unique(y_scores))[::-1]
+        umbrales = np.concatenate(([max(umbrales) + 0.1], umbrales, [min(umbrales) - 0.1]))
+        
+        tpr_list, fpr_list = [], []
+        for T in umbrales:
+            prediccion_ataque = y_scores >= T
+            TP = np.sum(prediccion_ataque & y_true)
+            FP = np.sum(prediccion_ataque & ~y_true)
+            tpr_list.append(TP / P)
+            fpr_list.append(FP / N)
+            
+        indices = np.argsort(fpr_list)
+        fpr_sorted = np.array(fpr_list)[indices]
+        tpr_sorted = np.array(tpr_list)[indices]
+        
+        # Compatibilidad con NumPy nuevo y antiguo
+        try:
+            auc_value = np.trapezoid(tpr_sorted, fpr_sorted)
+        except AttributeError:
+            auc_value = np.trapz(tpr_sorted, fpr_sorted)
+            
+        color = colores[idx % len(colores)]
+        plt.plot(fpr_sorted, tpr_sorted, lw=2, color=color,
+                 label=f'{label_name} (AUC = {auc_value:.3f})')
+
+    plt.plot([0, 1], [0, 1], color='black', lw=2, linestyle='--', label='Azar (AUC = 0.5)')
+    
+    plt.xlim([-0.02, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Tasa de Falsos Positivos (FPR)', fontsize=12)
+    plt.ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=12)
+    plt.title(title, fontsize=14)
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.tight_layout()
+    plt.show()
+
+
 def plot_static_threshold(s_simulacion=50):
     """
     Alternativa estática: Muestra el umbral T frente a alpha para diferentes niveles de ruido.

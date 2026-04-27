@@ -4,7 +4,7 @@ from qiskit_aer import AerSimulator
 from scipy.stats import binom
 from bb84_simulator import simulate_bb84_iteration
 from bb84_simulator import compute_threshold
-from grafics import plot_confusion_matrix, plot_static_threshold, plot_error_distributions
+from grafics import plot_confusion_matrix, plot_static_threshold, plot_error_distributions, plot_roc_curve, plot_multiple_roc_curves
 
 
 # Inicializamos el simulador cuántico local.
@@ -306,6 +306,80 @@ def experiment_variable_p_and_n(qubit_counts,
 
     plot_confusion_matrix(all_metrics, title="Matriz de Confusión Global (Eve y n variables)")
 
+
+def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, noise_rate):
+    """
+    Evalúa mediante Curvas ROC cómo mejora la detección al aumentar los Qubits (n).
+    Para que la ROC funcione, forzamos internamente que la mitad de las veces Eve ataque
+    y la otra mitad no, simulando un canal real en vigilancia.
+    """
+    print(f"--- Exp: ROC con n Variable | Ruido={noise_rate} ---")
+    
+    check_fraction = 0.5
+    resultados_roc = {}  # Diccionario para guardar los datos de cada 'n'
+    
+    for n in qubit_counts:
+        y_true = []
+        y_scores = []
+        
+        for _ in range(numero_ensayos):
+            # La regla de oro del ROC: 50% de las veces la casa está en llamas, 50% no.
+            ataque_activo = np.random.rand() < 0.5
+            p_actual = intercept_prob if ataque_activo else 0.0
+            
+            res = simulate_bb84_iteration(n, p_actual, noise_rate, check_fraction, alpha=0.05)
+            
+            if res:
+                # Tasa de error = errores / bits de comprobación
+                tasa_error = res['errors_count'] / res['s_simulacion']
+                y_true.append(res['eve_present'])
+                y_scores.append(tasa_error)
+                
+        # Guardamos los resultados de este tamaño de qubits
+        resultados_roc[f"n={n}"] = (y_true, y_scores)
+        
+    plot_multiple_roc_curves(resultados_roc, title=f"Evolución de la Detección según n (Ruido={noise_rate*100}%)")
+
+
+def experiment_roc_analysis(num_qubits,
+                            numero_ensayos,
+                            intercept_prob,
+                            noise_rate):
+    """
+    MODO ROC: Simula un escenario realista donde no sabemos si Eve atacará o no.
+    La mitad de las veces (estadísticamente) habrá un ataque, y la otra mitad no.
+    Capturamos la tasa de error para dibujar la curva ROC.
+    """
+    print(f"--- Exp: Análisis ROC | Qubits={num_qubits}, Ruido={noise_rate} ---")
+    
+    check_fraction = 0.5
+    y_true = []   # Guardará la Realidad (True/False)
+    y_scores = []  # Guardará la Tasa de error
+    
+    for _ in range(numero_ensayos):
+        # Lanzamos una moneda: 50% de probabilidad de que Eve decida atacar en esta iteración
+        ataque_activo = np.random.rand() < 0.5
+        
+        # Si ataca, usa la intercept_prob. Si no ataca, p=0.0
+        p_actual = intercept_prob if ataque_activo else 0.0
+        
+        # No nos importa alpha aquí, porque la curva ROC ignorará el umbral de Qiskit 
+        # y calculará los suyos propios basándose en la tasa de errores.
+        res = simulate_bb84_iteration(num_qubits,
+                                      p_actual,
+                                      noise_rate,
+                                      check_fraction,
+                                      alpha=0.05)
+        
+        if res:
+            # La "Puntuación" del modelo será la tasa de error (errores / bits comparados)
+            tasa_error = res['errors_count'] / res['s_simulacion']
+            
+            y_true.append(res['eve_present'])
+            y_scores.append(tasa_error)
+            
+    plot_roc_curve(y_true, y_scores, title=f"Curva ROC (Qubits={num_qubits}, Ruido={noise_rate*100}%)")
+
 # =====================================================================
 # 3. EL ORQUESTADOR (Donde decides qué estudiar hoy)
 # =====================================================================
@@ -342,7 +416,7 @@ if __name__ == "__main__":
         p_eve = 1.0
         # Aceptamos un 5% de Falsos Positivos
         alpha_fp = 0.05
-
+        """"
         print("--- Generando gráficas teóricas previas ---")
         # 1. Mostramos cómo se comporta el umbral en general
         plot_static_threshold(s_simulacion=50)
@@ -365,7 +439,12 @@ if __name__ == "__main__":
                               intercept_prob=p_eve,
                               noise_rate=noise,
                               alpha=alpha_fp)
-
+        """
+        experiment_roc_variable_n(qubit_counts=[8, 16, 32, 64],
+                                  numero_ensayos=1000,
+                                  intercept_prob=p_eve,
+                                  noise_rate=noise)
+            
     elif CASO_A_ESTUDIAR == "C":
         # CASO C: 0% Ruido, Eve variable (p)
         noise = 0.0
@@ -381,3 +460,9 @@ if __name__ == "__main__":
             noise_rate=noise,
             alpha=alpha_fp
         )
+    elif CASO_A_ESTUDIAR == "D":
+        # MODO ROC: Simulamos un escenario realista donde no sabemos si Eve atacará o no.
+        experiment_roc_analysis(num_qubits=16,
+                                numero_ensayos=1000,
+                                intercept_prob=1.0,
+                                noise_rate=0.02)
