@@ -25,8 +25,7 @@ If the observed errors exceed T, the protocol assumes Eve's presence and aborts 
 
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/yourusername/bb84-quantum-simulation.git](https://github.com/yourusername/bb84-quantum-simulation.git)
-   cd bb84-quantum-simulation
+   git clone https://github.com/noraagudel/tfg.git
 
 2. Install the required dependencies. It is recommended to use a virtual environment:
    pip install numpy scipy matplotlib qiskit qiskit-aer
