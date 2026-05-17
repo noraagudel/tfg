@@ -28,6 +28,7 @@ If the observed errors exceed T, the protocol assumes Eve's presence and aborts 
    git clone https://github.com/noraagudel/tfg.git
 
 2. Install the required dependencies. It is recommended to use a virtual environment:
+   ```bash
    pip install numpy scipy matplotlib qiskit qiskit-aer
 
 ## Usage
