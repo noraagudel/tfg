@@ -14,6 +14,13 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     total_FP = sum(m['FP'] for m in metrics_list)
     total_TN = sum(m['TN'] for m in metrics_list)
     total_FN = sum(m['FN'] for m in metrics_list)
+
+    # Si no hay ningún caso donde Eve esté ausente (TN y FP son 0),
+    # la matriz no tiene sentido estadístico.
+    if total_TN == 0 and total_FP == 0:
+        print(f"\nSe omite '{title}':")
+        print("Eve atacó en el 100% de los casos. No hay métricas negativas que graficar.\n")
+        return  # Esto detiene la función aquí y evita que se dibuje la gráfica
     
     # Estructuramos la matriz 2x2
     # Filas: Valor Real (Eve Presente, Eve Ausente)

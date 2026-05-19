@@ -310,36 +310,119 @@ def experiment_variable_p_and_n(qubit_counts,
 def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, noise_rate):
     """
     Evalúa mediante Curvas ROC cómo mejora la detección al aumentar los Qubits (n).
-    Para que la ROC funcione, forzamos internamente que la mitad de las veces Eve ataque
-    y la otra mitad no, simulando un canal real en vigilancia.
     """
     print(f"--- Exp: ROC con n Variable | Ruido={noise_rate} ---")
     
     check_fraction = 0.5
-    resultados_roc = {}  # Diccionario para guardar los datos de cada 'n'
+    resultados_roc = {}  
     
     for n in qubit_counts:
+        # y_true guarda la "Verdad Absoluta": ¿Estaba Eve de verdad? (True/False)
         y_true = []
+        # y_scores guarda nuestra "Pista" o "Nivel de sospecha": La tasa de errores observada.
         y_scores = []
         
         for _ in range(numero_ensayos):
-            # La regla de oro del ROC: 50% de las veces la casa está en llamas, 50% no.
+            # Simulamos el mundo real: a veces Eve ataca, a veces el canal está tranquilo.
             ataque_activo = np.random.rand() < 0.5
             p_actual = intercept_prob if ataque_activo else 0.0
             
+            # Ejecutamos la simulación
             res = simulate_bb84_iteration(n, p_actual, noise_rate, check_fraction, alpha=0.05)
             
             if res:
-                # Tasa de error = errores / bits de comprobación
+                # -------------------------------------------------------------
+                # LA CLAVE DEL ROC: Guardamos la pista y la verdad, ¡pero no tomamos la decisión final!
+                # -------------------------------------------------------------
+                # Calculamos el porcentaje de error observado en esta ronda
                 tasa_error = res['errors_count'] / res['s_simulacion']
+                
+                # Anotamos si Eve estaba realmente en la fibra óptica
                 y_true.append(res['eve_present'])
+                
+                # Anotamos la tasa de error (el "score" de sospecha)
                 y_scores.append(tasa_error)
                 
-        # Guardamos los resultados de este tamaño de qubits
+        # Guardamos todas las verdades y todos los scores para este valor de 'n'
         resultados_roc[f"n={n}"] = (y_true, y_scores)
         
+    # La función externa plot_multiple_roc_curves tomará estas dos listas.
+    # Ordenará los scores de mayor a menor e irá moviendo el umbral imaginario 
+    # paso a paso para dibujar la curva.
     plot_multiple_roc_curves(resultados_roc, title=f"Evolución de la Detección según n (Ruido={noise_rate*100}%)")
 
+    
+def experiment_realistic_scenario(qubit_counts,
+                                  numero_ensayos,
+                                  noise_rate,
+                                  alpha):
+    """
+    MODO REALISTA
+    Simula un canal real:
+    - 50% de probabilidad de que Eve decida atacar.
+    - Si Eve ataca, su nivel de interceptación 'p' es completamente impredecible 
+      (un valor aleatorio entre 0.1 y 1.0).
+    - El canal siempre tiene el ruido base configurado.
+    """
+    print(f"--- Exp: Escenario Realista | Ruido={noise_rate*100}%, Alpha={alpha} ---")
+    
+    check_fraction = 0.5
+    all_metrics = []
+    
+    # Listas para guardar datos y graficar la tasa de error vs la agresividad de Eve
+    p_utilizados = []
+    tasas_error = []
+    
+    for n in qubit_counts:
+        for _ in range(numero_ensayos):
+            # 1. Decidimos aleatoriamente si Eve ataca o no (50/50)
+            ataque_activo = np.random.rand() < 0.5
+            
+            # 2. Si ataca, elige una fracción de qubits 'p' al azar entre el 10% y el 100%
+            if ataque_activo:
+                p_actual = np.random.uniform(0.1, 1.0)
+            else:
+                p_actual = 0.0
+                
+            # 3. Simulamos la iteración
+            res = simulate_bb84_iteration(n,
+                                          p_actual,
+                                          noise_rate,
+                                          check_fraction,
+                                          alpha)
+
+            if res:
+                all_metrics.append(res['metrics'])
+                
+                # Solo entramos aquí si Eve realmente intentó atacar
+                if ataque_activo and res['s_simulacion'] > 0:
+                    
+                    # 1. Guardamos el valor secreto 'p' que usó Eve. 
+                    # Este será nuestro Eje X. Representa la "Causa".
+                    p_utilizados.append(p_actual)
+                    
+                    # 2. CALCULAMOS LA TASA DE ERROR OBSERVADA
+                    # res['errors_count'] -> Número de bits que no coincidieron entre Alice y Bob.
+                    # res['s_simulacion'] -> Número total de bits que decidieron comparar.
+                    # Al dividirlos, obtenemos un valor entre 0.0 y 1.0 (ej: 0.15 significa un 15% de error).
+                    # Este será nuestro Eje Y. Representa el "Efecto" o "Síntoma".
+                    error_rate_actual = res['errors_count'] / res['s_simulacion']
+                    
+                    # 3. Guardamos el resultado en la lista para graficarlo después
+                    tasas_error.append(error_rate_actual)
+
+    # Gráfica 1: Dispersión para ver cómo aumentan los errores según la agresividad de Eve
+    plt.figure(figsize=(10, 6))
+    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple')
+    plt.title('Tasa de Errores Observada vs Agresividad Aleatoria de Eve (p)')
+    plt.xlabel('Fracción de Intercepción de Eve (p)')
+    plt.ylabel('Tasa de Error en Comprobación')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.savefig('dispersion_realista.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+    # Gráfica 2: Matriz de Confusión final del escenario realista
+    plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión Realista\n(Ruido={noise_rate*100}%, Alpha={alpha})")
 
 # =====================================================================
 # 3. EL ORQUESTADOR (Donde decides qué estudiar hoy)
@@ -348,7 +431,7 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "B"  # Cambia esto a "B" o "C"
+    CASO_A_ESTUDIAR = "D" 
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
@@ -418,6 +501,22 @@ if __name__ == "__main__":
             qubit_counts=qubit_counts_lista,
             numero_ensayos=1000,
             p_values=p_valores_lista,
+            noise_rate=noise,
+            alpha=alpha_fp
+        )
+    
+    elif CASO_A_ESTUDIAR == "D":
+        # CASO D:(Ruido, Eve Impredecible y ajuste de Alpha)
+        noise = 0.05       # 5% de ruido ambiental
+        alpha_fp = 0.10    # Subimos alpha al 10% para ser más sensibles y reducir Falsos Negativos
+        
+        # Usamos tamaños de qubits más grandes para dar significancia estadística
+        # y que Eve no se escape simplemente por "suerte" en muestras pequeñas.
+        qubit_counts_lista = [32, 64, 128, 256] 
+        
+        experiment_realistic_scenario(
+            qubit_counts=qubit_counts_lista,
+            numero_ensayos=1000,
             noise_rate=noise,
             alpha=alpha_fp
         )
