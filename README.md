@@ -1,29 +1,44 @@
-# tfg
+# BB84 Quantum Key Distribution Simulation 
 
-Workflow regarding my Bachelor's Thesis on the No-Cloning Theorem and its implications in quantum cryptography 
+## Overview
+This repository contains a comprehensive computational simulation of the **BB84 Quantum Key Distribution (QKD) protocol**. Developed as part of a Bachelor's Thesis in Physics at the Universitat de Barcelona, this project models the secure generation and exchange of cryptographic keys using quantum mechanics principles.
 
-# several Python-based quantum programming frameworks that are standard for creating simulations like the one planned for this project:
+The simulation goes beyond ideal scenarios by introducing realistic constraints: **environmental channel noise** (bit-flip and phase-flip errors) and the presence of an **eavesdropper (Eve)**. By leveraging statistical modeling, the system dynamically calculates error thresholds to detect interceptions with high mathematical confidence.
 
-• Qiskit (IBM): Mentioned as a primary tool for quantum programming.
-• Cirq (Google): Another key Python framework for quantum circuits.
-• libquantum: A library specifically for quantum simulation.
+## Key Features
+* **End-to-End BB84 Lifecycle:** Simulates quantum state preparation (Alice), interception (Eve), quantum channel degradation, measurement (Bob), sifting, and error checking using the `qiskit_aer` simulator.
+* **Dynamic Statistical Thresholding:** Uses inverse binomial distributions (`scipy.stats.binom.ppf`) to dynamically calculate the tolerated error threshold (T) based on the sample size (s), environmental noise (p0), and a strictly defined false-positive tolerance (alpha).
+* **Robust Evaluation Metrics:** Evaluates the security of the protocol using Confusion Matrices, True Positive/False Positive rates, and ROC curves to measure detection capabilities under varying configurations.
+* **Configurable Experimental Orchestrator:** Allows automated execution of large-scale statistical experiments varying key parameters such as the number of qubits (n), iterations (R), and Eve's interception aggressiveness (p).
 
-# Logic for  Alice, Bob, and Eve Code
+## Mathematical Foundation
+To determine if Eve is eavesdropping, Alice and Bob compare a fraction of their sifted key. The simulation establishes a detection threshold T such that the probability of rejecting a secure key due to natural noise is strictly bounded by alpha.
 
-# Operational logic which is needed to turn into Python code:
+If the observed errors exceed T, the protocol assumes Eve's presence and aborts the key generation.
 
-• The BB84 Protocol: This is the standard method for secure communication between Alice and Bob. It involves Alice choosing a random basis (rectilinear or diagonal) to send photons, and Bob choosing a random basis to measure them.
+## Project Structure
+* `bb84_simulator.py`: The core quantum simulation logic. Handles the Qiskit circuit creation, gate applications (X, H, Z), measurements, and the mathematical sifting/checking phases.
+* `grafics.py`: A dedicated visualization module using Matplotlib to render Confusion Matrices, ROC curves, threshold evolutions, and error probability density functions.
+* `experiments.py` *(Orchestrator)*: The main entry point to run large-scale Monte Carlo experiments. 
 
-• Simulating Eve (The No-Cloning Theorem): The code can represent Eve’s presence based on the fact that she cannot copy quantum data with perfect fidelity due to the no-cloning theorem. If Eve attempts to read the data, the quantum state will change due to wave function collapse, which Alice and Bob can detect as discrepancies or noise.
+## Installation
 
-• Checking for Noise: The sources explain that Alice and Bob can prove a message was not wiretapped by checking for these discrepancies. In your code, the difference between the "spying" and "not spying" scenarios would be the error rate Bob sees in his measurement table when compared to Alice's original sequence.
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/noraagudel/tfg.git
 
-# Simulation Parameters (Noise and Detection)
+2. Install the required dependencies. It is recommended to use a virtual environment:
+   ```bash
+   pip install numpy scipy matplotlib qiskit qiskit-aer
 
-# To make the simulation more realistic, we can incorporate these "noise" factors mentioned in the source were we are getting inspired by:
+## Usage
 
-• Detector Efficiency Mismatch: Noise could be simulated by adding a parameter for differences in photodetector efficiency, which can sometimes allow an eavesdropper to hide their presence.
+You can run different experimental scenarios by modifying the CASO_A_ESTUDIAR variable inside the orchestrator file.
 
-• Multi-photon Sources: Real-world systems often use faint lasers rather than single photons, which allows for "photon splitting attacks" that could be simulated as a specific scenario.
+Available Experimental Cases:
 
-• Information-Theoretic Security: We can use the code to show that while QKD is secure against a spy with unlimited computing power, practical "noise" in the hardware (like holes in the measurement table from lost qubits) can affect the ability to verify if a sequence was intercepted.
+- CASE A (Ideal Channel, 100% Interception): Tests the theoretical detection limits without environmental noise. Evaluates how the number of qubits (n) and protocol repetitions (R) affect the probability of catching Eve.
+
+- CASE B (Noisy Channel, 100% Interception): Introduces a 2% baseline environmental noise. Generates statistical threshold graphs, error distributions, and ROC curves to evaluate the model's ability to distinguish between natural noise and an active attack.
+
+- CASE C (Variable Eavesdropping): Analyzes the system's sensitivity by varying Eve's interception probability (p) from 0% to 100% across different qubit block sizes.
