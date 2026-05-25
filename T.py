@@ -32,10 +32,10 @@ def calcular_T_manual(s, p0, alpha):
     return s
 
 # --- Probemos el código ---
-N_qubits = 200
+N_qubits = 64
 s = N_qubits // 4   # 50 bits de muestra
 p0 = 0.05           # 5% de ruido ambiental
-alpha = 0.05        # 5% de tolerancia a falsas alarmas
+alpha = 0.1        # 5% de tolerancia a falsas alarmas
 
 # Cálculo manual paso a paso
 T_manual = calcular_T_manual(s, p0, alpha)

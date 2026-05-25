@@ -77,11 +77,10 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
 def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC"):
     """
     Dibuja varias curvas ROC en la misma gráfica para comparar escenarios.
-    - dict_of_results: Un diccionario donde la clave es el nombre de la leyenda (ej: "n=16")
-                       y el valor es una tupla (y_true, y_scores).
+    Calcula y marca el umbral óptimo usando el Índice de Youden (J = TPR - FPR).
     """
     plt.figure(figsize=(9, 7))
-    colores = plt.cm.tab10.colors  # Paleta de colores bonita
+    colores = plt.cm.tab10.colors  
     
     for idx, (label_name, (y_true, y_scores)) in enumerate(dict_of_results.items()):
         y_true = np.array(y_true)
@@ -91,7 +90,7 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
         N = len(y_true) - P
         
         if P == 0 or N == 0:
-            continue # Saltamos si no hay mezcla de casos
+            continue 
             
         umbrales = np.sort(np.unique(y_scores))[::-1]
         umbrales = np.concatenate(([max(umbrales) + 0.1], umbrales, [min(umbrales) - 0.1]))
@@ -104,19 +103,43 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
             tpr_list.append(TP / P)
             fpr_list.append(FP / N)
             
+        # --- NUEVO: CÁLCULO DEL PUNTO ÓPTIMO (YOUDEN'S J) ---
+        tpr_array = np.array(tpr_list)
+        fpr_array = np.array(fpr_list)
+        
+        # J = Sensibilidad (TPR) + Especificidad (1 - FPR) - 1  --> Equivalente a TPR - FPR
+        j_scores = tpr_array - fpr_array
+        
+        # Obtenemos el índice donde J es máximo
+        best_idx = np.argmax(j_scores)
+        best_threshold = umbrales[best_idx]
+        best_tpr = tpr_array[best_idx]
+        best_fpr = fpr_array[best_idx]
+        # ----------------------------------------------------
+        
+        # Ordenamos para dibujar la curva suavemente
         indices = np.argsort(fpr_list)
         fpr_sorted = np.array(fpr_list)[indices]
         tpr_sorted = np.array(tpr_list)[indices]
         
-        # Compatibilidad con NumPy nuevo y antiguo
         try:
             auc_value = np.trapezoid(tpr_sorted, fpr_sorted)
         except AttributeError:
             auc_value = np.trapz(tpr_sorted, fpr_sorted)
             
         color = colores[idx % len(colores)]
+        
+        # Dibujamos la curva principal
         plt.plot(fpr_sorted, tpr_sorted, lw=2, color=color,
                  label=f'{label_name} (AUC = {auc_value:.3f})')
+        
+        # --- NUEVO: DIBUJAMOS LA ESTRELLA EN EL PUNTO ÓPTIMO ---
+        plt.plot(best_fpr, best_tpr, marker='*', markersize=12, color=color, 
+                 markeredgecolor='black', linestyle='None')
+        
+        # Anotamos el valor del umbral (T) como porcentaje de error al lado de la estrella
+        plt.annotate(f'T={best_threshold*100:.1f}%', (best_fpr, best_tpr), 
+                     textcoords="offset points", xytext=(12,-5), ha='left', fontsize=10, color=color)
 
     plt.plot([0, 1], [0, 1], color='black', lw=2, linestyle='--', label='Azar (AUC = 0.5)')
     
@@ -128,8 +151,7 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
     plt.legend(loc="lower right")
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.tight_layout()
-    plt.show()
-
+    
 
 def plot_static_threshold(s_simulacion=50):
     """

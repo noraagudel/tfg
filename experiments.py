@@ -258,6 +258,14 @@ def experiment_variable_p_and_n(qubit_counts,
                         detected_count += 1
                         
                     # CÁLCULO TEÓRICO EXACTO (Evaluado por ronda)
+                    """
+                    Debido a que el ruido y la interceptación alteran las mediciones, tras el proceso de Sifting 
+                    (descarte de bases incorrectas), la longitud de la cadena s varía ligeramente en cada ronda. 
+                    En lugar de hacer una estimación burda, tu código calcula la probabilidad teórica exacta para 
+                    la longitud s real de cada iteración y luego hace la media 
+                    (p_teo = suma_p_teo_exacta / valid_runs). Esto es estadísticamente impecable para canales 
+                    con ruido.
+                    """
                     s_de_esta_ronda = res['s_simulacion']
                     suma_p_teo_exacta += theoretical_detection_prob(s_de_esta_ronda,
                                                                     p,
@@ -287,7 +295,7 @@ def experiment_variable_p_and_n(qubit_counts,
                  label=f'Teórica (n={n})')
 
     # Configuración estética de la gráfica
-    plt.title('Probabilidad de Detección vs Tasa de Intercepción de Eve (p)\n(2% Ruido Ambiental)', fontsize=14)
+    plt.title(f'Probabilidad de Detección vs Tasa de Intercepción de Eve (p)\n({noise_rate*100:.0f}% Ruido, Alpha={alpha})', fontsize=14)
     plt.xlabel('Fracción de qubits interceptados por Eve (p)', fontsize=12)
     plt.ylabel('Probabilidad de detectar a Eve (%)', fontsize=12)
     
@@ -328,7 +336,7 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
             p_actual = intercept_prob if ataque_activo else 0.0
             
             # Ejecutamos la simulación
-            res = simulate_bb84_iteration(n, p_actual, noise_rate, check_fraction, alpha=0.05)
+            res = simulate_bb84_iteration(n, p_actual, noise_rate, check_fraction, alpha=0.10)
             
             if res:
                 # -------------------------------------------------------------
@@ -350,7 +358,9 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
     # Ordenará los scores de mayor a menor e irá moviendo el umbral imaginario 
     # paso a paso para dibujar la curva.
     plot_multiple_roc_curves(resultados_roc, title=f"Evolución de la Detección según n (Ruido={noise_rate*100}%)")
-
+    plt.savefig('curvas_roc.png', dpi=300, bbox_inches='tight')
+    plt.show()
+    
 
 def experiment_realistic_scenario(qubit_counts,
                                   numero_ensayos,
@@ -382,6 +392,8 @@ def experiment_realistic_scenario(qubit_counts,
         
         for _ in range(numero_ensayos):
             # 1. Decisión de ataque
+            # Simulamos un canal donde Eve ataca con una probabilidad del 50%
+            # en cada iteración, y cuando ataca, elige un p aleatorio entre 0.1 y 1.0.
             ataque_activo = np.random.rand() < 0.5
             
             # 2. Asignación de p
@@ -407,10 +419,8 @@ def experiment_realistic_scenario(qubit_counts,
                         p_utilizados.append(p_actual)
                         tasas_error.append(res['errors_count'] / res['s_simulacion'])
                     
-                    # NUEVO: Lógica de agrupación para la probabilidad
-                    # np.digitize nos dice en qué "caja" (índice) cae el p_actual
-                    # Restamos 1 porque los índices de arrays empiezan en 0
-                    indice_caja = np.digitize(p_actual, rangos_p) - 1
+                    # Agrupamos redondeando al decimal más cercano (ej. 0.96 -> caja del 1.0)
+                    indice_caja = int(round(p_actual * 10)) - 1
                     
                     # Aseguramos que el índice no se salga de los límites
                     indice_caja = min(indice_caja, len(rangos_p) - 1)
@@ -448,10 +458,9 @@ def experiment_realistic_scenario(qubit_counts,
         probabilidades = []
         for i in range(len(rangos_p)):
             if intentos[i] > 0:
-                # Calculamos el porcentaje
                 prob = (detecciones[i] / intentos[i]) * 100
             else:
-                prob = 0.0
+                prob = np.nan  # np.nan significa "Not a Number". Matplotlib ignorará este punto en lugar de dibujar un 0.
             probabilidades.append(prob)
             
         color_actual = colores[idx % len(colores)]
@@ -478,7 +487,7 @@ def experiment_realistic_scenario(qubit_counts,
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "C" 
+    CASO_A_ESTUDIAR = "B"
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
@@ -504,14 +513,15 @@ if __name__ == "__main__":
                               alpha=alpha_fp)
 
     elif CASO_A_ESTUDIAR == "B":
-        # CASO B: 2% Ruido, 100% Intercepción
-        noise = 0.02
+        # CASO B: 5% Ruido, 100% Intercepción
+        noise = 0.05
         p_eve = 1.0
-        # Aceptamos un 5% de Falsos Positivos
-        alpha_fp = 0.05
-
+        # Aceptamos un 10% de Falsos Positivos
+        alpha_fp = 0.10
+        
         print("--- Generando gráficas teóricas previas ---")
         # 1. Mostramos cómo se comporta el umbral en general
+        """
         plot_static_threshold(s_simulacion=50)
         
         # 2. Mostramos la distribución de errores para este escenario concreto (asumiendo s=50 para la foto)
@@ -531,9 +541,9 @@ if __name__ == "__main__":
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
-                              alpha=alpha_fp)
+                              alpha=alpha_fp) """
 
-        experiment_roc_variable_n(qubit_counts=[8, 16, 32, 64],
+        experiment_roc_variable_n(qubit_counts=[16, 32, 64, 128],
                                   numero_ensayos=1000,
                                   intercept_prob=p_eve,
                                   noise_rate=noise)
