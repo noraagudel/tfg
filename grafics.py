@@ -7,8 +7,11 @@ from bb84_simulator import compute_threshold
 def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenario"):
     """
     Agrega una lista de diccionarios de métricas, calcula porcentajes de éxito
-    e imprime un reporte estadístico detallado en la consola antes de graficar.
+    e imprime un reporte estadístico detallado. Dibuja una matriz NORMALIZADA.
     """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
     # 1. Acumulamos los totales de cada métrica en variables numéricas
     total_TP = sum(m['TP'] for m in metrics_list)
     total_FP = sum(m['FP'] for m in metrics_list)
@@ -24,17 +27,15 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
         return 
     
     # ---------------------------------------------------------
-    # NUEVO: CÁLCULO DE PORCENTAJES ESTADÍSTICOS DEL CÓDIGO
+    # CÁLCULO DE PORCENTAJES ESTADÍSTICOS
     # ---------------------------------------------------------
-    casos_con_eve = total_TP + total_FN  # Total de veces que hubo ataque
-    casos_solo_ruido = total_FP + total_TN  # Total de veces que el canal estuvo limpio
+    casos_con_eve = total_TP + total_FN  
+    casos_solo_ruido = total_FP + total_TN  
     
-    # Evitamos divisiones por cero con condicionales en línea
     porcentaje_deteccion = (total_TP / casos_con_eve * 100) if casos_con_eve > 0 else 0.0
     porcentaje_falsas_alarmas = (total_FP / casos_solo_ruido * 100) if casos_solo_ruido > 0 else 0.0
     porcentaje_precision_global = ((total_TP + total_TN) / total_casos * 100) if total_casos > 0 else 0.0
 
-    # Imprimimos el reporte analítico directamente en la consola de Python
     print("\n" + "="*50)
     print(f" REPORTES ESTADÍSTICOS: {title}")
     print("="*50)
@@ -44,23 +45,42 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     print(f"-> Precisión Total del Umbral T            : {porcentaje_precision_global:.2f}%")
     print("="*50 + "\n")
 
-    # 2. Estructuramos la matriz 2x2 para Matplotlib
-    matrix = np.array([[total_TP, total_FN],
-                       [total_FP, total_TN]])
+    # 2. Estructuramos las matrices para Matplotlib
+    # Matriz de valores absolutos para los textos
+    matrix_abs = np.array([[total_TP, total_FN],
+                           [total_FP, total_TN]])
     
-    fig, ax = plt.subplots(figsize=(6, 5))
-    cax = ax.matshow(matrix, cmap='Blues')
+    # Matriz normalizada (de 0.0 a 1.0) para los colores
+    matrix_norm = np.zeros((2, 2))
+    if casos_con_eve > 0:
+        matrix_norm[0, 0] = total_TP / casos_con_eve
+        matrix_norm[0, 1] = total_FN / casos_con_eve
+    if casos_solo_ruido > 0:
+        matrix_norm[1, 0] = total_FP / casos_solo_ruido
+        matrix_norm[1, 1] = total_TN / casos_solo_ruido
     
-    # Colocamos los números dentro de las celdas de la gráfica
-    for (i, j), val in np.ndenumerate(matrix):
-        ax.text(j, i, f'{val}', ha='center', va='center', 
-                color='white' if val > (np.max(matrix)/2) else 'black',
-                fontsize=14, fontweight='bold')
+    fig, ax = plt.subplots(figsize=(7, 6)) # Un poco más ancha para que quepa bien el texto
+    
+    # Usamos vmin=0 y vmax=1 para que la escala de color siempre sea absoluta (0% al 100%)
+    cax = ax.matshow(matrix_norm, cmap='Blues', vmin=0, vmax=1)
+    
+    # Colocamos los números dentro de las celdas (Porcentaje + Valor absoluto)
+    for (i, j), val_norm in np.ndenumerate(matrix_norm):
+        val_abs = matrix_abs[i, j]
+        texto_celda = f"{val_norm * 100:.1f}%\n({val_abs})"
+        
+        ax.text(j, i, texto_celda, ha='center', va='center', 
+                color='white' if val_norm > 0.5 else 'black',
+                fontsize=13, fontweight='bold')
     
     plt.title(title, pad=20)
-    plt.colorbar(cax)
     
-    # Configuramos las etiquetas de los ejes
+    # Añadimos la barra de color formateada como porcentajes
+    cbar = plt.colorbar(cax)
+    ticks = cbar.get_ticks()
+    cbar.ax.set_yticks(ticks) # Fijamos las posiciones primero
+    cbar.ax.set_yticklabels([f"{x*100:.0f}%" for x in ticks]) # Luego aplicamos el texto
+    
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
     ax.set_xticklabels(['Alarma (Detectada)', 'Seguro (No Detectada)'])
@@ -69,7 +89,6 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     plt.xlabel('Predicción del Sistema (Umbral T)', fontsize=12)
     plt.ylabel('Realidad (Simulación)', fontsize=12)
     
-    # Reajuste automático de márgenes para evitar textos cortados
     plt.tight_layout() 
     plt.show()
 
@@ -151,7 +170,7 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
     plt.legend(loc="lower right")
     plt.grid(True, linestyle=':', alpha=0.7)
     plt.tight_layout()
-    
+
 
 def plot_static_threshold(s_simulacion=50):
     """
