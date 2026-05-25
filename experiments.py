@@ -208,12 +208,12 @@ def experiment_variable_p_and_n(qubit_counts,
                                 noise_rate,
                                 alpha):
     """
-    CASO C (0% Ruido, Eve variable (p))
+    CASO C (x% Ruido, Eve variable (p))
      - qubit_counts: Lista de diferentes números de qubits a probar
      - numero_ensayos: Número de veces que se repite el experimento para cada combinación de p y n (para hacer estadística)
      - p_values: Lista de diferentes valores de p (fracción de qubits interceptados por Eve) a probar
-     - noise_rate: Tasa de ruido ambiental (en este caso, 0.0)
-     - threshold: Umbral para decidir si detectamos a Eve o no (en este caso, 0.0)
+     - noise_rate: Tasa de ruido ambiental 
+     - threshold: Umbral para decidir si detectamos a Eve o no 
         Este experimento es una combinación de los anteriores, pero con la particularidad de que ahora
         se evalúa la probabilidad de detección variando la agresividad de Eve (p) para distintos tamaños de bloques de qubits (n).
      El experimento calcula tanto la probabilidad empírica (basada en las simulaciones) como la teórica para cada combinación de p y n.
@@ -287,7 +287,7 @@ def experiment_variable_p_and_n(qubit_counts,
                  label=f'Teórica (n={n})')
 
     # Configuración estética de la gráfica
-    plt.title('Probabilidad de Detección vs Tasa de Intercepción de Eve (p)\n(0% Ruido Ambiental)', fontsize=14)
+    plt.title('Probabilidad de Detección vs Tasa de Intercepción de Eve (p)\n(2% Ruido Ambiental)', fontsize=14)
     plt.xlabel('Fracción de qubits interceptados por Eve (p)', fontsize=12)
     plt.ylabel('Probabilidad de detectar a Eve (%)', fontsize=12)
     
@@ -351,69 +351,85 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
     # paso a paso para dibujar la curva.
     plot_multiple_roc_curves(resultados_roc, title=f"Evolución de la Detección según n (Ruido={noise_rate*100}%)")
 
-    
+
 def experiment_realistic_scenario(qubit_counts,
                                   numero_ensayos,
                                   noise_rate,
                                   alpha):
     """
-    MODO REALISTA
-    Simula un canal real:
-    - 50% de probabilidad de que Eve decida atacar.
-    - Si Eve ataca, su nivel de interceptación 'p' es completamente impredecible 
-      (un valor aleatorio entre 0.1 y 1.0).
-    - El canal siempre tiene el ruido base configurado.
+    MODO REALISTA 
+    Simula un canal real con ataques aleatorios y además calcula 
+    la probabilidad de detección agrupando los ataques por rangos.
     """
     print(f"--- Exp: Escenario Realista | Ruido={noise_rate*100}%, Alpha={alpha} ---")
     
     check_fraction = 0.5
     all_metrics = []
-    
-    # Listas para guardar datos y graficar la tasa de error vs la agresividad de Eve
     p_utilizados = []
     tasas_error = []
     
+    # Diccionario para almacenar los datos agrupados (binning) por cada tamaño de n
+    # Estructura: { n: { 'rangos': [0.1, 0.2...], 'intentos': [0, 0...], 'detecciones': [0, 0...] } }
+    datos_probabilidad = {}
+    rangos_p = np.arange(0.1, 1.1, 0.1) # Crea cajas: 0.1, 0.2, 0.3 ... 1.0
+
     for n in qubit_counts:
+        # Inicializamos los contadores para este tamaño de qubits
+        datos_probabilidad[n] = {
+            'intentos': np.zeros(len(rangos_p)),
+            'detecciones': np.zeros(len(rangos_p))
+        }
+        
         for _ in range(numero_ensayos):
-            # 1. Decidimos aleatoriamente si Eve ataca o no (50/50)
+            # 1. Decisión de ataque
             ataque_activo = np.random.rand() < 0.5
             
-            # 2. Si ataca, elige una fracción de qubits 'p' al azar entre el 10% y el 100%
+            # 2. Asignación de p
             if ataque_activo:
                 p_actual = np.random.uniform(0.1, 1.0)
             else:
                 p_actual = 0.0
                 
-            # 3. Simulamos la iteración
+            # 3. Simulación
             res = simulate_bb84_iteration(n,
                                           p_actual,
                                           noise_rate,
                                           check_fraction,
                                           alpha)
-
+            
             if res:
+                # Guardamos para la matriz de confusión global
                 all_metrics.append(res['metrics'])
                 
-                # Solo entramos aquí si Eve realmente intentó atacar
-                if ataque_activo and res['s_simulacion'] > 0:
+                if ataque_activo:
+                    # Guardamos para la gráfica de dispersión
+                    if res['s_simulacion'] > 0:
+                        p_utilizados.append(p_actual)
+                        tasas_error.append(res['errors_count'] / res['s_simulacion'])
                     
-                    # 1. Guardamos el valor secreto 'p' que usó Eve. 
-                    # Este será nuestro Eje X. Representa la "Causa".
-                    p_utilizados.append(p_actual)
+                    # NUEVO: Lógica de agrupación para la probabilidad
+                    # np.digitize nos dice en qué "caja" (índice) cae el p_actual
+                    # Restamos 1 porque los índices de arrays empiezan en 0
+                    indice_caja = np.digitize(p_actual, rangos_p) - 1
                     
-                    # 2. CALCULAMOS LA TASA DE ERROR OBSERVADA
-                    # res['errors_count'] -> Número de bits que no coincidieron entre Alice y Bob.
-                    # res['s_simulacion'] -> Número total de bits que decidieron comparar.
-                    # Al dividirlos, obtenemos un valor entre 0.0 y 1.0 (ej: 0.15 significa un 15% de error).
-                    # Este será nuestro Eje Y. Representa el "Efecto" o "Síntoma".
-                    error_rate_actual = res['errors_count'] / res['s_simulacion']
+                    # Aseguramos que el índice no se salga de los límites
+                    indice_caja = min(indice_caja, len(rangos_p) - 1)
+                    indice_caja = max(indice_caja, 0)
                     
-                    # 3. Guardamos el resultado en la lista para graficarlo después
-                    tasas_error.append(error_rate_actual)
+                    # Sumamos 1 intento a esta caja
+                    datos_probabilidad[n]['intentos'][indice_caja] += 1
+                    
+                    # Si detectamos a Eve, sumamos 1 detección a esta caja
+                    if res['eve_detected']:
+                        datos_probabilidad[n]['detecciones'][indice_caja] += 1
 
-    # Gráfica 1: Dispersión para ver cómo aumentan los errores según la agresividad de Eve
+    # ---------------------------------------------------------
+    # GRÁFICAS Y VISUALIZACIÓN
+    # ---------------------------------------------------------
+
+    # Gráfica 1: Dispersión
     plt.figure(figsize=(10, 6))
-    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple')
+    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple', s=10) # s=10 hace los puntos más pequeños
     plt.title('Tasa de Errores Observada vs Agresividad Aleatoria de Eve (p)')
     plt.xlabel('Fracción de Intercepción de Eve (p)')
     plt.ylabel('Tasa de Error en Comprobación')
@@ -421,7 +437,38 @@ def experiment_realistic_scenario(qubit_counts,
     plt.savefig('dispersion_realista.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # Gráfica 2: Matriz de Confusión final del escenario realista
+    # NUEVA Gráfica 2: Probabilidad de Detección vs p (Estilo Caso C)
+    plt.figure(figsize=(10, 6))
+    colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
+    
+    for idx, n in enumerate(qubit_counts):
+        intentos = datos_probabilidad[n]['intentos']
+        detecciones = datos_probabilidad[n]['detecciones']
+        
+        probabilidades = []
+        for i in range(len(rangos_p)):
+            if intentos[i] > 0:
+                # Calculamos el porcentaje
+                prob = (detecciones[i] / intentos[i]) * 100
+            else:
+                prob = 0.0
+            probabilidades.append(prob)
+            
+        color_actual = colores[idx % len(colores)]
+        plt.plot(rangos_p, probabilidades, marker='o', linestyle='-', 
+                 color=color_actual, label=f'Empírica Agrupada (n={n})')
+
+    plt.title(f'Probabilidad de Detección vs Tasa de Intercepción (p) \nEscenario Realista (Ruido={noise_rate*100}%, Alpha={alpha})')
+    plt.xlabel('Fracción de Intercepción de Eve (p) - Agrupada')
+    plt.ylabel('Probabilidad de Detección (%)')
+    plt.xticks(rangos_p)
+    plt.yticks(np.arange(0, 105, 10))
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.legend()
+    plt.savefig('prob_agrupada_realista.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+    # Gráfica 3: Matriz de Confusión
     plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión Realista\n(Ruido={noise_rate*100}%, Alpha={alpha})")
 
 # =====================================================================
@@ -431,7 +478,7 @@ def experiment_realistic_scenario(qubit_counts,
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "D" 
+    CASO_A_ESTUDIAR = "C" 
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
@@ -440,14 +487,16 @@ if __name__ == "__main__":
         alpha_fp = 0.0  # Cualquier error es Eve
         
         # A.1: R variable
+
         experiment_variable_R(n_fixed=16,
                               R_values=[1, 2, 3, 5, 8, 12, 20],
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
                               noise_rate=noise,
                               alpha=alpha_fp)
-        
+
         # A.2: n variable
+
         experiment_variable_n(qubit_counts=[1, 4, 8, 16, 32, 64, 128],
                               numero_ensayos=1000,
                               intercept_prob=p_eve,
@@ -460,7 +509,7 @@ if __name__ == "__main__":
         p_eve = 1.0
         # Aceptamos un 5% de Falsos Positivos
         alpha_fp = 0.05
-        
+
         print("--- Generando gráficas teóricas previas ---")
         # 1. Mostramos cómo se comporta el umbral en general
         plot_static_threshold(s_simulacion=50)
@@ -483,18 +532,18 @@ if __name__ == "__main__":
                               intercept_prob=p_eve,
                               noise_rate=noise,
                               alpha=alpha_fp)
-        
+
         experiment_roc_variable_n(qubit_counts=[8, 16, 32, 64],
                                   numero_ensayos=1000,
                                   intercept_prob=p_eve,
                                   noise_rate=noise)
             
     elif CASO_A_ESTUDIAR == "C":
-        # CASO C: 0% Ruido, Eve variable (p)
-        noise = 0.0
-        alpha_fp = 0.0
+        # CASO C: 2% Ruido, Eve variable (p)
+        noise = 0.02
+        alpha_fp = 0.10
         
-        qubit_counts_lista = [1, 6, 8, 12, 20]
+        qubit_counts_lista = [16, 32, 64, 128, 256]
         p_valores_lista = np.linspace(0.0, 1.0, 11)  # [0.0, 0.1, 0.2, ..., 1.0]
     
         experiment_variable_p_and_n(

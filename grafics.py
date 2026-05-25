@@ -6,33 +6,52 @@ from bb84_simulator import compute_threshold
 
 def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenario"):
     """
-    Agrega una lista de diccionarios de métricas y dibuja un mapa de calor.
-    metrics_list: Lista generada acumulando el res['metrics'] de tus simulaciones.
+    Agrega una lista de diccionarios de métricas, calcula porcentajes de éxito
+    e imprime un reporte estadístico detallado en la consola antes de graficar.
     """
-    # Acumulamos los totales
+    # 1. Acumulamos los totales de cada métrica en variables numéricas
     total_TP = sum(m['TP'] for m in metrics_list)
     total_FP = sum(m['FP'] for m in metrics_list)
     total_TN = sum(m['TN'] for m in metrics_list)
     total_FN = sum(m['FN'] for m in metrics_list)
-
-    # Si no hay ningún caso donde Eve esté ausente (TN y FP son 0),
-    # la matriz no tiene sentido estadístico.
-    if total_TN == 0 and total_FP == 0:
-        print(f"\nSe omite '{title}':")
-        print("Eve atacó en el 100% de los casos. No hay métricas negativas que graficar.\n")
-        return  # Esto detiene la función aquí y evita que se dibuje la gráfica
     
-    # Estructuramos la matriz 2x2
-    # Filas: Valor Real (Eve Presente, Eve Ausente)
-    # Columnas: Predicción (Detectada, No Detectada)
+    total_casos = total_TP + total_FP + total_TN + total_FN
+
+    # Comprobación de seguridad para evitar pantallas vacías
+    if total_TN == 0 and total_FP == 0:
+        print(f"\n[Aviso] Se omite '{title}':")
+        print("-> Eve atacó en el 100% de los casos. No hay métricas negativas que graficar.\n")
+        return 
+    
+    # ---------------------------------------------------------
+    # NUEVO: CÁLCULO DE PORCENTAJES ESTADÍSTICOS DEL CÓDIGO
+    # ---------------------------------------------------------
+    casos_con_eve = total_TP + total_FN  # Total de veces que hubo ataque
+    casos_solo_ruido = total_FP + total_TN  # Total de veces que el canal estuvo limpio
+    
+    # Evitamos divisiones por cero con condicionales en línea
+    porcentaje_deteccion = (total_TP / casos_con_eve * 100) if casos_con_eve > 0 else 0.0
+    porcentaje_falsas_alarmas = (total_FP / casos_solo_ruido * 100) if casos_solo_ruido > 0 else 0.0
+    porcentaje_precision_global = ((total_TP + total_TN) / total_casos * 100) if total_casos > 0 else 0.0
+
+    # Imprimimos el reporte analítico directamente en la consola de Python
+    print("\n" + "="*50)
+    print(f" REPORTES ESTADÍSTICOS: {title}")
+    print("="*50)
+    print(f"Total de iteraciones evaluadas en el código : {total_casos}")
+    print(f"-> Eficacia de Detección (Atrapamos a Eve)  : {porcentaje_deteccion:.2f}% ({total_TP}/{casos_con_eve})")
+    print(f"-> Tasa de Falsas Alarmas (Error de Ruido) : {porcentaje_falsas_alarmas:.2f}% ({total_FP}/{casos_solo_ruido})")
+    print(f"-> Precisión Total del Umbral T            : {porcentaje_precision_global:.2f}%")
+    print("="*50 + "\n")
+
+    # 2. Estructuramos la matriz 2x2 para Matplotlib
     matrix = np.array([[total_TP, total_FN],
                        [total_FP, total_TN]])
     
     fig, ax = plt.subplots(figsize=(6, 5))
-    # Usamos matshow para crear el mapa de calor
     cax = ax.matshow(matrix, cmap='Blues')
     
-    # Añadimos los números dentro de las celdas
+    # Colocamos los números dentro de las celdas de la gráfica
     for (i, j), val in np.ndenumerate(matrix):
         ax.text(j, i, f'{val}', ha='center', va='center', 
                 color='white' if val > (np.max(matrix)/2) else 'black',
@@ -41,7 +60,7 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     plt.title(title, pad=20)
     plt.colorbar(cax)
     
-    # Configuramos las etiquetas
+    # Configuramos las etiquetas de los ejes
     ax.set_xticks([0, 1])
     ax.set_yticks([0, 1])
     ax.set_xticklabels(['Alarma (Detectada)', 'Seguro (No Detectada)'])
@@ -49,6 +68,9 @@ def plot_confusion_matrix(metrics_list, title="Matriz de Confusión del Escenari
     
     plt.xlabel('Predicción del Sistema (Umbral T)', fontsize=12)
     plt.ylabel('Realidad (Simulación)', fontsize=12)
+    
+    # Reajuste automático de márgenes para evitar textos cortados
+    plt.tight_layout() 
     plt.show()
 
 
