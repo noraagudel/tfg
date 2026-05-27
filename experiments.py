@@ -339,33 +339,34 @@ def experiment_realistic_scenario(qubit_counts,
     """
     MODO REALISTA 
     Simula un canal real con ataques aleatorios y además calcula 
-    la probabilidad de detección agrupando los ataques por rangos.
+    la probabilidad de detección agrupando los ataques por rangos y por tamaño de 'n'.
     """
     print(f"--- Exp: Escenario Realista | Ruido={noise_rate*100}%, Alpha={alpha} ---")
     
     check_fraction = 0.5
-    all_metrics = []
     p_utilizados = []
     tasas_error = []
     
-    # Diccionario para almacenar los datos agrupados (binning) por cada tamaño de n
-    # Estructura: { n: { 'rangos': [0.1, 0.2...], 'intentos': [0, 0...], 'detecciones': [0, 0...] } }
+    # Diccionarios para almacenar los datos agrupados por cada tamaño de n
     datos_probabilidad = {}
+    datos_matrices = {}  # Para guardar las métricas separadas por n
+    
     rangos_p = np.arange(0.1, 1.1, 0.1) # Crea cajas: 0.1, 0.2, 0.3 ... 1.0
 
     for n in qubit_counts:
-        # Inicializamos los contadores para este tamaño de qubits
+        # Inicializamos las estructuras para este tamaño de qubits
         datos_probabilidad[n] = {
             'intentos': np.zeros(len(rangos_p)),
             'detecciones': np.zeros(len(rangos_p))
         }
+        datos_matrices[n] = []  # Inicializa la lista de métricas para este n
         
         for _ in range(numero_ensayos):
             # 1. Decisión de ataque
             # Simulamos un canal donde Eve ataca con una probabilidad del 50%
             # en cada iteración, y cuando ataca, elige un p aleatorio entre 0.1 y 1.0.
             ataque_activo = np.random.rand() < 0.5
-            
+
             # 2. Asignación de p
             if ataque_activo:
                 p_actual = np.random.uniform(0.1, 1.0)
@@ -380,36 +381,33 @@ def experiment_realistic_scenario(qubit_counts,
                                           alpha)
             
             if res:
-                # Guardamos para la matriz de confusión global
-                all_metrics.append(res['metrics'])
+                # Guardamos las métricas en la lista específica de este 'n'
+                datos_matrices[n].append(res['metrics'])
                 
                 if ataque_activo:
-                    # Guardamos para la gráfica de dispersión
+                    # Guardamos para la gráfica de dispersión global
                     if res['s_simulacion'] > 0:
                         p_utilizados.append(p_actual)
                         tasas_error.append(res['errors_count'] / res['s_simulacion'])
                     
                     # Agrupamos redondeando al decimal más cercano (ej. 0.96 -> caja del 1.0)
                     indice_caja = int(round(p_actual * 10)) - 1
-                    
                     # Aseguramos que el índice no se salga de los límites
                     indice_caja = min(indice_caja, len(rangos_p) - 1)
-                    indice_caja = max(indice_caja, 0)
-                    
+                    indice_caja = max(indice_caja, 0)                    
                     # Sumamos 1 intento a esta caja
                     datos_probabilidad[n]['intentos'][indice_caja] += 1
                     
                     # Si detectamos a Eve, sumamos 1 detección a esta caja
                     if res['eve_detected']:
                         datos_probabilidad[n]['detecciones'][indice_caja] += 1
-
     # ---------------------------------------------------------
     # GRÁFICAS Y VISUALIZACIÓN
     # ---------------------------------------------------------
 
-    # Gráfica 1: Dispersión
+    # Gráfica 1: Dispersión (Se mantiene global para ver el comportamiento general del canal)
     plt.figure(figsize=(10, 6))
-    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple', s=10) # s=10 hace los puntos más pequeños
+    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple', s=10)
     plt.title('Tasa de Errores Observada vs Agresividad Aleatoria de Eve (p)')
     plt.xlabel('Fracción de Intercepción de Eve (p)')
     plt.ylabel('Tasa de Error en Comprobación')
@@ -417,7 +415,7 @@ def experiment_realistic_scenario(qubit_counts,
     plt.savefig('dispersion_realista.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # NUEVA Gráfica 2: Probabilidad de Detección vs p (Estilo Caso C)
+    # Gráfica 2: Probabilidad de Detección vs p Agrupada
     plt.figure(figsize=(10, 6))
     colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
     
@@ -430,7 +428,7 @@ def experiment_realistic_scenario(qubit_counts,
             if intentos[i] > 0:
                 prob = (detecciones[i] / intentos[i]) * 100
             else:
-                prob = np.nan  # np.nan significa "Not a Number". Matplotlib ignorará este punto en lugar de dibujar un 0.
+                prob = np.nan
             probabilidades.append(prob)
             
         color_actual = colores[idx % len(colores)]
@@ -447,8 +445,12 @@ def experiment_realistic_scenario(qubit_counts,
     plt.savefig('prob_agrupada_realista.png', dpi=300, bbox_inches='tight')
     plt.show()
 
-    # Gráfica 3: Matriz de Confusión
-    plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión Realista\n(Ruido={noise_rate*100}%, Alpha={alpha})")
+    # Gráfica 3: Matrices de Confusión Individuales por cada 'n'
+    for n in qubit_counts:
+        plot_confusion_matrix(
+            datos_matrices[n], 
+            title=f"Matriz de Confusión Realista (n={n})\n(Ruido={noise_rate*100}%, Alpha={alpha})"
+        )
 
 
 def experiment_roc_variable_p(n_fixed, numero_ensayos, p_values, noise_rate):
