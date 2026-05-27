@@ -209,22 +209,23 @@ def experiment_variable_p_and_n(qubit_counts,
                                 alpha):
     """
     CASO C (x% Ruido, Eve variable (p))
+    Calcula todo primero y dibuja después para evitar conflictos de Matplotlib.
     """
     print(f"--- Exp: Eve Variable (p) y Qubits Variables (n) | Iter={numero_ensayos}, Ruido={noise_rate} ---")
     check_fraction = 0.5
     
-    # Preparamos la figura de Matplotlib para la gráfica de líneas
-    plt.figure(figsize=(12, 8))
-    colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown']
+    # ---------------------------------------------------------
+    # 1. FASE DE CÁLCULO Y RECOLECCIÓN DE DATOS
+    # ---------------------------------------------------------
+    datos_lineas_emp = {}
+    datos_lineas_teo = {}
+    datos_matrices = {}
     
-    for idx, n in enumerate(qubit_counts):
+    for n in qubit_counts:
         print(f"Simulando para n = {n}...")
         emp_probs = []
         teo_probs = []
-        
-        # Vaciamos la lista de métricas para que solo contenga los datos del 'n' actual
         all_metrics = []
-        color_actual = colores[idx % len(colores)]
         
         for p in p_values:
             detected_count = 0
@@ -235,7 +236,7 @@ def experiment_variable_p_and_n(qubit_counts,
                 res = simulate_bb84_iteration(n, p, noise_rate, check_fraction, alpha)
                 
                 if res:
-                    all_metrics.append(res['metrics']) # Guardamos la métrica
+                    all_metrics.append(res['metrics'])
                     valid_runs += 1
                     if res['eve_detected']:
                         detected_count += 1
@@ -249,17 +250,23 @@ def experiment_variable_p_and_n(qubit_counts,
             else:
                 emp_probs.append(0.0)
                 teo_probs.append(0.0)
-            
-        # Dibujamos las líneas en la gráfica global
-        plt.plot(p_values, emp_probs, marker='o', linestyle='-', color=color_actual, label=f'Empírica (n={n})')
-        plt.plot(p_values, teo_probs, marker='', linestyle='--', color=color_actual, alpha=0.6, label=f'Teórica (n={n})')
+                
+        # Guardamos los resultados de este 'n' en nuestros diccionarios
+        datos_lineas_emp[n] = emp_probs
+        datos_lineas_teo[n] = teo_probs
+        datos_matrices[n] = all_metrics
 
-        # Imprimimos la matriz de confusión PARA ESTE 'N'
-        # Lo hacemos aquí, dentro del bucle de 'n', pero fuera del bucle de 'p' para que la matriz 
-        # de confusión refleje el desempeño global para ese tamaño de qubits, considerando todas las agresividades de Eve.
-        plot_confusion_matrix(all_metrics, title=f"Matriz de Confusión (n={n})\nRuido={noise_rate*100:.0f}%, Alpha={alpha}")
+    # ---------------------------------------------------------
+    # 2. FASE DE DIBUJO: GRÁFICA PRINCIPAL DE LÍNEAS
+    # ---------------------------------------------------------
+    plt.figure(figsize=(12, 8))
+    colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:brown']
+    
+    for idx, n in enumerate(qubit_counts):
+        color_actual = colores[idx % len(colores)]
+        plt.plot(p_values, datos_lineas_emp[n], marker='o', linestyle='-', color=color_actual, label=f'Empírica (n={n})')
+        plt.plot(p_values, datos_lineas_teo[n], marker='', linestyle='--', color=color_actual, alpha=0.6, label=f'Teórica (n={n})')
 
-    # Configuración de la gráfica de líneas global (se muestra al final)
     plt.title(f'Probabilidad de Detección vs Tasa de Intercepción de Eve (p)\n({noise_rate*100:.0f}% Ruido, Alpha={alpha})', fontsize=14)
     plt.xlabel('Fracción de qubits interceptados por Eve (p)', fontsize=12)
     plt.ylabel('Probabilidad de detectar a Eve (%)', fontsize=12)
@@ -269,7 +276,13 @@ def experiment_variable_p_and_n(qubit_counts,
     plt.legend(bbox_to_anchor=(1.02, 1), loc='upper left', borderaxespad=0.)
     plt.tight_layout()
     plt.savefig('prob_deteccion_p_y_n.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.show() # Aquí mostramos la gráfica principal PERFECTAMENTE TERMINADA
+
+    # ---------------------------------------------------------
+    # 3. FASE DE DIBUJO: MATRICES DE CONFUSIÓN INDIVIDUALES
+    # ---------------------------------------------------------
+    for n in qubit_counts:
+        plot_confusion_matrix(datos_matrices[n], title=f"Matriz de Confusión (n={n})\nRuido={noise_rate*100:.0f}%, Alpha={alpha}")
 
 
 def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, noise_rate):
@@ -487,6 +500,70 @@ def experiment_roc_variable_p(n_fixed, numero_ensayos, p_values, noise_rate):
     # Llamamos a nuestra función graficadora (la que ya tiene el Índice de Youden implementado)
     plot_multiple_roc_curves(resultados_roc, 
                              title=f"Sensibilidad al Ataque de Eve (n={n_fixed}, Ruido={noise_rate*100:.0f}%)")
+    plt.savefig('roc_variable_p.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+
+def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_rate, alpha):
+    """
+    MODO E: Compara cómo de fácil es detectar a Eve según el tipo de ruido en el canal.
+    Evalúa: Bit-Flip, Phase-Flip, Entanglement, y Los 3 combinados.
+    """
+    print(f"--- Exp: Comparativa de Ruidos | n={n_fixed}, Ruido={noise_rate*100}% ---")
+    check_fraction = 0.5
+    
+    perfiles = ['bit_flip', 'phase_flip', 'entanglement', 'all']
+    nombres = {
+        'bit_flip': 'Bit-Flip',
+        'phase_flip': 'Phase-Flip',
+        'entanglement': 'Entanglement (Entorno)',
+        'all': 'All 3 types of error'
+    }
+    colores = {'bit_flip': 'blue', 'phase_flip': 'orange', 'entanglement': 'green', 'all': 'red'}
+    
+    # Diccionario para almacenar las probabilidades de detección de cada perfil
+    resultados = {prof: [] for prof in perfiles}
+    
+    for prof in perfiles:
+        print(f"Simulando ruido: {nombres[prof]}...")
+        for p in p_values:
+            detected_count = 0
+            valid_runs = 0
+            
+            for _ in range(numero_ensayos):
+                res = simulate_bb84_iteration(
+                    num_qubits=n_fixed, 
+                    intercept_prob=p, 
+                    noise_rate=noise_rate, 
+                    check_fraction=check_fraction, 
+                    alpha=alpha, 
+                    noise_profile=prof # Inyectamos el perfil específico
+                )
+                
+                if res:
+                    valid_runs += 1
+                    if res['eve_detected']:
+                        detected_count += 1
+                        
+            prob_emp = (detected_count / valid_runs * 100) if valid_runs > 0 else 0.0
+            resultados[prof].append(prob_emp)
+            
+    # ---------------------------------------------------------
+    # FASE DE DIBUJO: SUPERPOSICIÓN DE LAS 4 CURVAS
+    # ---------------------------------------------------------
+    plt.figure(figsize=(10, 6))
+    for prof in perfiles:
+        plt.plot(p_values, resultados[prof], marker='o', lw=2, 
+                 color=colores[prof], label=nombres[prof])
+
+    plt.title(f'Capacidad de Detección de Eve vs Tipo de Ruido Ambiental\n(n={n_fixed}, Tasa de Ruido={noise_rate*100}%, Alpha={alpha})', fontsize=14)
+    plt.xlabel('Fracción de Intercepción de Eve (p)', fontsize=12)
+    plt.ylabel('Probabilidad de Detección (%)', fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig('comparativa_ruidos.png', dpi=300, bbox_inches='tight')
+    plt.show()
 # =====================================================================
 # 3. EL ORQUESTADOR (Donde decides qué estudiar hoy)
 # =====================================================================
@@ -494,7 +571,7 @@ def experiment_roc_variable_p(n_fixed, numero_ensayos, p_values, noise_rate):
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "C"
+    CASO_A_ESTUDIAR = "E"
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
@@ -557,9 +634,10 @@ if __name__ == "__main__":
             
     elif CASO_A_ESTUDIAR == "C":
         # CASO C: 5% Ruido, Eve variable (p)
+
         noise = 0.05
         alpha_fp = 0.15
-        
+        """
         qubit_counts_lista = [16, 32, 64, 128, 256]
         p_valores_lista = np.linspace(0.0, 1.0, 11)  # [0.0, 0.1, 0.2, ..., 1.0]
     
@@ -569,7 +647,7 @@ if __name__ == "__main__":
             p_values=p_valores_lista,
             noise_rate=noise,
             alpha=alpha_fp
-        )
+        ) """
 
         # ---------------------------------------------------------
         # Generamos el Análisis ROC de Sensibilidad
@@ -600,6 +678,23 @@ if __name__ == "__main__":
         experiment_realistic_scenario(
             qubit_counts=qubit_counts_lista,
             numero_ensayos=1000,
+            noise_rate=noise,
+            alpha=alpha_fp
+        )
+    
+    elif CASO_A_ESTUDIAR == "E":
+        # CASO E: Comparativa entre tipos de Ruido
+        noise = 0.05
+        alpha_fp = 0.10
+        n_optimo = 128
+        
+        # Saltos del 20% para que la simulación no tarde mucho
+        p_valores_lista = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] 
+        
+        experiment_compare_noise_profiles(
+            n_fixed=n_optimo,
+            numero_ensayos=1000,  
+            p_values=p_valores_lista,
             noise_rate=noise,
             alpha=alpha_fp
         )

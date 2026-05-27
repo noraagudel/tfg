@@ -39,16 +39,18 @@ def simulate_bb84_iteration(
         intercept_prob,
         noise_rate,
         check_fraction,
-        alpha):
+        alpha,
+        noise_profile='all'  
+    ):
     """
-    Simula una iteración completa del protocolo BB84.
+    Simula una iteración completa del protocolo BB84 con un perfil de ruido específico.
     """
     
-    # QuantumCircuit es el lienzo donde dibujamos nuestro algoritmo cuántico.
-    # El primer número (num_qubits) es la cantidad de Qubits (cables cuánticos).
-    # El segundo número (num_qubits * 2) es la cantidad de Bits clásicos (cables normales) 
-    # donde guardaremos los resultados de las mediciones (la mitad para Bob y la mitad para Eve).
-    qc = QuantumCircuit(num_qubits, num_qubits * 2)
+    # IMPORTANTE: Doblamos el tamaño del QuantumCircuit.
+    # Los qubits [0 a num_qubits-1] son nuestro canal (fibra óptica).
+    # Los qubits [num_qubits a 2*num_qubits-1] son el ENTORNO (espacio vacío con el que se puede entrelazar).
+    # Los bits clásicos se mantienen en num_qubits * 2 (Bob y Eve).
+    qc = QuantumCircuit(num_qubits * 2, num_qubits * 2)
     
     # ---------------------------------------------------------
     # 1. ALICE PREPARA LOS QUBITS
@@ -101,22 +103,37 @@ def simulate_bb84_iteration(
     # 3. RUIDO DEL CANAL CUÁNTICO
     # ---------------------------------------------------------
     for i in range(num_qubits):
-        # Simulamos que el ambiente o el cable de fibra óptica alteran los qubits al azar.
-        if np.random.rand() < noise_rate:
-            qc.x(i)  # Error de Bit-Flip: cambia 0 por 1 o viceversa (afecta la base rectilínea).
-        if np.random.rand() < noise_rate:
-            qc.z(i)  # Error de Phase-Flip: altera la fase (afecta la base diagonal).
+        # Error de Bit-Flip
+        if noise_profile in ['bit_flip', 'all']:
+            if np.random.rand() < noise_rate:
+                qc.x(i)  
+                
+        # Error de Phase-Flip
+        if noise_profile in ['phase_flip', 'all']:
+            if np.random.rand() < noise_rate:
+                qc.z(i)  
+                
+        # Error de Entanglement con el Entorno
+        if noise_profile in ['entanglement', 'all']:
+            if np.random.rand() < noise_rate:
+                # Se entrelaza el qubit de transmisión (i) con su correspondiente qubit del entorno (num_qubits + i).
+                # Como el qubit del entorno NUNCA se mide por Bob, esto genera decoherencia irrecuperable.
+                # Si Alice envía información en la base Z (∣0⟩ o ∣1⟩), el CNOT cambia el entorno,
+                # pero el qubit de Alice se queda intacto. Error para Bob: 0%.
+                # Si Alice envía información en la base X (∣+⟩ o ∣−⟩), el CNOT crea un estado de Bell. 
+                # Al Bob medir su mitad en la base X, el resultado se vuelve completamente aleatorio 
+                # (50% de probabilidad de error).
+                qc.cx(i, num_qubits + i)
 
-    qc.barrier()  # Fin del viaje por la fibra óptica.
+    qc.barrier() # Fin del viaje por la fibra óptica.
 
     # ---------------------------------------------------------
     # 4. BOB RECIBE Y MIDE
     # ---------------------------------------------------------
     bob_bases = np.random.randint(2, size=num_qubits)
-    
     for i in range(num_qubits):
         # Si Bob elige medir en base diagonal, aplica H primero.
-        if bob_bases[i] == 1: 
+        if bob_bases[i] == 1:
             qc.h(i)
             
         # Bob mide y guarda sus resultados en la primera mitad de los bits clásicos (índices del 0 al num_qubits-1).
@@ -157,7 +174,6 @@ def simulate_bb84_iteration(
     # Si por mala suerte no coincidieron en ninguna base, abortan.
     if len(sifted_alice) == 0:
         return None
-        
     # ---------------------------------------------------------
     # 6. COMPROBACIÓN DE ESPIONAJE
     # ---------------------------------------------------------
@@ -170,7 +186,6 @@ def simulate_bb84_iteration(
     
     # Cuentan cuántos bits son diferentes entre Alice y Bob en esa muestra.
     errors = np.sum(check_alice != check_bob)
-    error_rate = errors / s_simulacion
     
     # Cálculo del Umbral Estadístico (T) y métricas
     T = compute_threshold(s_simulacion, noise_rate, alpha)
