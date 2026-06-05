@@ -338,20 +338,21 @@ def experiment_realistic_scenario(qubit_counts,
                                   alpha):
     """
     MODO REALISTA 
-    Simula un canal real con ataques aleatorios y además calcula 
-    la probabilidad de detección agrupando los ataques por rangos y por tamaño de 'n'.
+    Simula un canal real con ataques aleatorios y calcula métricas,
+    probabilidades agrupadas y tasas de error separadas por el tamaño de 'n'.
     """
     print(f"--- Exp: Escenario Realista | Ruido={noise_rate*100}%, Alpha={alpha} ---")
     
     check_fraction = 0.5
-    p_utilizados = []
-    tasas_error = []
     
-    # Diccionarios para almacenar los datos agrupados por cada tamaño de n
+    # Diccionarios para almacenar los datos separados/agrupados por cada tamaño de n
     datos_probabilidad = {}
-    datos_matrices = {}  # Para guardar las métricas separadas por n
+    datos_matrices = {}  
+    p_utilizados = {}   #   diccionario por n
+    tasas_error = {}    # diccionario por n
     
-    rangos_p = np.arange(0.1, 1.1, 0.1) # Crea cajas: 0.1, 0.2, 0.3 ... 1.0
+    rangos_p = np.arange(0.1, 1.1, 0.1) 
+    colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
 
     for n in qubit_counts:
         # Inicializamos las estructuras para este tamaño de qubits
@@ -359,14 +360,14 @@ def experiment_realistic_scenario(qubit_counts,
             'intentos': np.zeros(len(rangos_p)),
             'detecciones': np.zeros(len(rangos_p))
         }
-        datos_matrices[n] = []  # Inicializa la lista de métricas para este n
+        datos_matrices[n] = []  
+        p_utilizados[n] = []    # <-- NUEVO: Lista de p para este n específico
+        tasas_error[n] = []     # <-- NUEVO: Lista de errores para este n específico
         
         for _ in range(numero_ensayos):
-            # 1. Decisión de ataque
-            # Simulamos un canal donde Eve ataca con una probabilidad del 50%
-            # en cada iteración, y cuando ataca, elige un p aleatorio entre 0.1 y 1.0.
+            # 1. Decisión de ataque (50% de probabilidad)
             ataque_activo = np.random.rand() < 0.5
-
+            
             # 2. Asignación de p
             if ataque_activo:
                 p_actual = np.random.uniform(0.1, 1.0)
@@ -381,44 +382,46 @@ def experiment_realistic_scenario(qubit_counts,
                                           alpha)
             
             if res:
-                # Guardamos las métricas en la lista específica de este 'n'
                 datos_matrices[n].append(res['metrics'])
                 
                 if ataque_activo:
-                    # Guardamos para la gráfica de dispersión global
+                    # Guardamos para la gráfica de dispersión SEPARADA por n
                     if res['s_simulacion'] > 0:
-                        p_utilizados.append(p_actual)
-                        tasas_error.append(res['errors_count'] / res['s_simulacion'])
+                        p_utilizados[n].append(p_actual)
+                        tasas_error[n].append(res['errors_count'] / res['s_simulacion'])
                     
-                    # Agrupamos redondeando al decimal más cercano (ej. 0.96 -> caja del 1.0)
+                    # Agrupamos en los rangos (binning)
                     indice_caja = int(round(p_actual * 10)) - 1
-                    # Aseguramos que el índice no se salga de los límites
-                    indice_caja = min(indice_caja, len(rangos_p) - 1)
-                    indice_caja = max(indice_caja, 0)                    
-                    # Sumamos 1 intento a esta caja
-                    datos_probabilidad[n]['intentos'][indice_caja] += 1
+                    indice_caja = min(max(indice_caja, 0), len(rangos_p) - 1)
                     
-                    # Si detectamos a Eve, sumamos 1 detección a esta caja
+                    datos_probabilidad[n]['intentos'][indice_caja] += 1
                     if res['eve_detected']:
                         datos_probabilidad[n]['detecciones'][indice_caja] += 1
+
     # ---------------------------------------------------------
     # GRÁFICAS Y VISUALIZACIÓN
     # ---------------------------------------------------------
 
-    # Gráfica 1: Dispersión (Se mantiene global para ver el comportamiento general del canal)
+    # Gráfica 1: Dispersión Diferenciada por n
     plt.figure(figsize=(10, 6))
-    plt.scatter(p_utilizados, tasas_error, alpha=0.5, color='purple', s=10)
-    plt.title('Tasa de Errores Observada vs Agresividad Aleatoria de Eve (p)')
+    for idx, n in enumerate(qubit_counts):
+        color_actual = colores[idx % len(colores)]
+        plt.scatter(p_utilizados[n], tasas_error[n], 
+                    alpha=0.4,                 # Transparencia para ver puntos solapados
+                    color=color_actual, 
+                    s=12,                      # Tamaño de los puntos
+                    label=f'Observado (n={n})')
+        
+    plt.title('Tasa de Errores Observada vs Agresividad de Eve (p) por Tamaño de Bloque')
     plt.xlabel('Fracción de Intercepción de Eve (p)')
-    plt.ylabel('Tasa de Error en Comprobación')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.savefig('dispersion_realista.png', dpi=300, bbox_inches='tight')
+    plt.ylabel('Tasa de Error en Comprobación (QBER Empírico)')
+    plt.grid(True, linestyle='--', alpha=0.5)
+    plt.legend()
+    plt.savefig('dispersion_realista_por_n.png', dpi=300, bbox_inches='tight')
     plt.show()
 
     # Gráfica 2: Probabilidad de Detección vs p Agrupada
     plt.figure(figsize=(10, 6))
-    colores = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple']
-    
     for idx, n in enumerate(qubit_counts):
         intentos = datos_probabilidad[n]['intentos']
         detecciones = datos_probabilidad[n]['detecciones']
@@ -451,7 +454,6 @@ def experiment_realistic_scenario(qubit_counts,
             datos_matrices[n], 
             title=f"Matriz de Confusión Realista (n={n})\n(Ruido={noise_rate*100}%, Alpha={alpha})"
         )
-
 
 def experiment_roc_variable_p(n_fixed, numero_ensayos, p_values, noise_rate):
     """
@@ -573,7 +575,7 @@ def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_r
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "E"
+    CASO_A_ESTUDIAR = "D"
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
