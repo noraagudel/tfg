@@ -103,27 +103,23 @@ def simulate_bb84_iteration(
     # 3. RUIDO DEL CANAL CUÁNTICO
     # ---------------------------------------------------------
     for i in range(num_qubits):
-        # Error de Bit-Flip
-        if noise_profile in ['bit_flip', 'all']:
+        
+        if noise_profile == 'all':
+            # 1. ¿Ocurre un error? (Probabilidad = noise_rate)
             if np.random.rand() < noise_rate:
-                qc.x(i)  
+                # 2. Ha ocurrido un error. ¿De qué tipo es? (50/50)
+                if np.random.rand() < 0.5:
+                    qc.x(i)  # Bit-Flip
+                else:
+                    qc.z(i)  # Phase-Flip
+                    
+        elif noise_profile == 'bit_flip':
+            if np.random.rand() < noise_rate:
+                qc.x(i)
                 
-        # Error de Phase-Flip
-        if noise_profile in ['phase_flip', 'all']:
+        elif noise_profile == 'phase_flip':
             if np.random.rand() < noise_rate:
-                qc.z(i)  
-                
-        # Error de Entanglement con el Entorno
-        if noise_profile in ['entanglement', 'all']:
-            if np.random.rand() < noise_rate:
-                # Se entrelaza el qubit de transmisión (i) con su correspondiente qubit del entorno (num_qubits + i).
-                # Como el qubit del entorno NUNCA se mide por Bob, esto genera decoherencia irrecuperable.
-                # Si Alice envía información en la base Z (∣0⟩ o ∣1⟩), el CNOT cambia el entorno,
-                # pero el qubit de Alice se queda intacto. Error para Bob: 0%.
-                # Si Alice envía información en la base X (∣+⟩ o ∣−⟩), el CNOT crea un estado de Bell. 
-                # Al Bob medir su mitad en la base X, el resultado se vuelve completamente aleatorio 
-                # (50% de probabilidad de error).
-                qc.cx(i, num_qubits + i)
+                qc.z(i)
 
     qc.barrier() # Fin del viaje por la fibra óptica.
 

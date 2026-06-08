@@ -97,6 +97,7 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
     """
     Dibuja varias curvas ROC en la misma gráfica para comparar escenarios.
     Calcula y marca el umbral óptimo usando el Índice de Youden (J = TPR - FPR).
+    Muestra el ratio TPR/FPR y utiliza un marcador de estilo formal.
     """
     plt.figure(figsize=(9, 7))
     colores = plt.cm.tab10.colors  
@@ -122,7 +123,7 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
             tpr_list.append(TP / P)
             fpr_list.append(FP / N)
             
-        # --- NUEVO: CÁLCULO DEL PUNTO ÓPTIMO (YOUDEN'S J) ---
+        # --- CÁLCULO DEL PUNTO ÓPTIMO (YOUDEN'S J) Y RATIO ---
         tpr_array = np.array(tpr_list)
         fpr_array = np.array(fpr_list)
         
@@ -134,6 +135,15 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
         best_threshold = umbrales[best_idx]
         best_tpr = tpr_array[best_idx]
         best_fpr = fpr_array[best_idx]
+        
+        # Cálculo del ratio TPR/FPR protegiendo contra división por cero
+        if best_fpr == 0:
+            if best_tpr == 0:
+                ratio_str = "N/A"
+            else:
+                ratio_str = "∞"
+        else:
+            ratio_str = f"{(best_tpr / best_fpr):.2f}"
         # ----------------------------------------------------
         
         # Ordenamos para dibujar la curva suavemente
@@ -152,20 +162,23 @@ def plot_multiple_roc_curves(dict_of_results, title="Comparativa de Curvas ROC")
         plt.plot(fpr_sorted, tpr_sorted, lw=2, color=color,
                  label=f'{label_name} (AUC = {auc_value:.3f})')
         
-        # --- NUEVO: DIBUJAMOS LA ESTRELLA EN EL PUNTO ÓPTIMO ---
-        plt.plot(best_fpr, best_tpr, marker='*', markersize=12, color=color, 
-                 markeredgecolor='black', linestyle='None')
         
-        # Anotamos el valor del umbral (T) como porcentaje de error al lado de la estrella
-        plt.annotate(f'T={best_threshold*100:.1f}%', (best_fpr, best_tpr), 
-                     textcoords="offset points", xytext=(12,-5), ha='left', fontsize=10, color=color)
+        plt.plot(best_fpr, best_tpr, marker='X', markersize=10, color=color, 
+                 markeredgecolor='black', linestyle='None', zorder=5)
+        
+        # Anotamos el valor del umbral (T) y el ratio TPR/FPR
+        annot_text = f'T={best_threshold*100:.1f}%\nTPR/FPR={ratio_str}'
+        plt.annotate(annot_text, (best_fpr, best_tpr), 
+                     textcoords="offset points", xytext=(12,-12), ha='left', va='top', 
+                     fontsize=10, color=color, 
+                     bbox=dict(boxstyle="round,pad=0.3", fc="white", ec=color, alpha=0.8))
 
-    plt.plot([0, 1], [0, 1], color='black', lw=2, linestyle='--', label='Azar (AUC = 0.5)')
+    plt.plot([0, 1], [0, 1], color='black', lw=2, linestyle='--', label='Random (AUC = 0.5)')
     
     plt.xlim([-0.02, 1.0])
     plt.ylim([0.0, 1.05])
-    plt.xlabel('Tasa de Falsos Positivos (FPR)', fontsize=12)
-    plt.ylabel('Tasa de Verdaderos Positivos (TPR)', fontsize=12)
+    plt.xlabel('False Positive Rate (FPR)', fontsize=12)
+    plt.ylabel('True Positive Rate (TPR)', fontsize=12)
     plt.title(title, fontsize=14)
     plt.legend(loc="lower right")
     plt.grid(True, linestyle=':', alpha=0.7)
@@ -185,12 +198,12 @@ def plot_static_threshold(s_simulacion=50):
     for noise, color in zip(noise_rates, colores):
         Ts = [int(binom.ppf(1 - a, s_simulacion, noise)) for a in alphas]
         # Dibujamos las líneas en formato escalón
-        plt.step(alphas, Ts, where='post', color=color, linewidth=2, label=f'Ruido: {noise*100}%')
-        
-    plt.title(f'Evolución del Umbral T vs Tolerancia a Falsos Positivos $\\alpha$\n(Longitud de comprobación s={s_simulacion})')
-    plt.xlabel(r'Tolerancia a Falsos Positivos ($\alpha$)')
-    plt.ylabel('Umbral Tolerado de Errores (T)')
-    
+        plt.step(alphas, Ts, where='post', color=color, linewidth=2, label=f'External Noise: {noise*100}%')
+
+    plt.title(f'Evolution of threshold T vs False Positive Tolerance $\\alpha$\n(Check length s={s_simulacion})')
+    plt.xlabel(f'False Positive Tolerance ($\alpha$)')
+    plt.ylabel('Tolerated Error Threshold (T)')
+
     plt.xticks(np.arange(0, 0.22, 0.02), [f"{x*100:.0f}%" for x in np.arange(0, 0.22, 0.02)])
     plt.grid(True, linestyle='--', alpha=0.7)
     plt.legend()
@@ -219,24 +232,22 @@ def plot_error_distributions(s_simulacion, noise_rate, intercept_prob, alpha):
     plt.figure(figsize=(10, 6))
     
     # Rellenamos las áreas bajo las curvas para mayor claridad
-    plt.fill_between(k_values, pmf_solo_ruido, color='blue', alpha=0.3, label='Solo Ruido (Canal Seguro)')
-    plt.fill_between(k_values, pmf_con_eve, color='red', alpha=0.3, label='Ruido + Eve (Ataque)')
-    
+    plt.fill_between(k_values, pmf_solo_ruido, color='blue', alpha=0.3, label='Only external noise (Safe Channel)')
+    plt.fill_between(k_values, pmf_con_eve, color='red', alpha=0.3, label='External noise + Eve (Compromised Channel)')
+
     # Dibujamos las líneas de las curvas
     plt.plot(k_values, pmf_solo_ruido, color='blue', lw=2)
     plt.plot(k_values, pmf_con_eve, color='red', lw=2)
     
     # Línea vertical para el Umbral T
-    plt.axvline(x=T, color='black', linestyle='--', lw=2, label=f'Umbral T ({T} errores)')
+    plt.axvline(x=T, color='black', linestyle='--', lw=2, label=f'Threshold T ({T} errors)')
     
-    plt.title(f'Distribución de Errores (s={s_simulacion}, Ruido={noise_rate:.2f}, p_Eve={intercept_prob:.2f})')
-    plt.xlabel('Número de Errores Observados (k)')
-    plt.ylabel('Probabilidad $P(X = k)$')
-    plt.xlim(0, max(20, T * 2.5)) # Ajustamos el zoom dinámicamente
+    # Multiplicamos por 100 y le quitamos los decimales con .0f para que quede limpio
+    plt.title(f'Error Distribution (s={s_simulacion}, External Noise={noise_rate * 100:.0f}%, p={intercept_prob:.2f})')
+    plt.xlabel('Number of observed errors (k)')
+    plt.ylabel('Probability $P(X = k)$')
+    plt.xlim(0, max(20, T * 2.5)) # Adjust zoom dynamically
     plt.legend()
     plt.grid(True, linestyle=':', alpha=0.6)
     plt.tight_layout()
     plt.show()
-
-# Puedes llamarlo así desde tu código principal:
-# plot_error_distributions(s_simulacion=100, noise_rate=0.02, intercept_prob=1.0, alpha=0.05)
