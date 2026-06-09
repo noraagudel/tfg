@@ -677,7 +677,7 @@ if __name__ == "__main__":
         
         # Usamos tamaños de qubits más grandes para dar significancia estadística
         # y que Eve no se escape simplemente por "suerte" en muestras pequeñas.
-        qubit_counts_lista = [32, 64, 128, 256] 
+        qubit_counts_lista = [32, 256] 
         
         experiment_realistic_scenario(
             qubit_counts=qubit_counts_lista,
