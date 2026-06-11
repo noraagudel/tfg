@@ -458,7 +458,7 @@ def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_r
     nombres = {
         'bit_flip': 'Bit-Flip',
         'phase_flip': 'Phase-Flip',
-        'all': 'All 3 types of error'
+        'all': 'All 2 types of error'
     }
     colores = {'bit_flip': 'blue', 'phase_flip': 'orange', 'all': 'red'}
     
