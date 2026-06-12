@@ -35,10 +35,3 @@ If the observed errors exceed T, the protocol assumes Eve's presence and aborts 
 
 You can run different experimental scenarios by modifying the CASO_A_ESTUDIAR variable inside the orchestrator file.
 
-Available Experimental Cases:
-
-- CASE A (Ideal Channel, 100% Interception): Tests the theoretical detection limits without environmental noise. Evaluates how the number of qubits (n) and protocol repetitions (R) affect the probability of catching Eve.
-
-- CASE B (Noisy Channel, 100% Interception): Introduces a 2% baseline environmental noise. Generates statistical threshold graphs, error distributions, and ROC curves to evaluate the model's ability to distinguish between natural noise and an active attack.
-
-- CASE C (Variable Eavesdropping): Analyzes the system's sensitivity by varying Eve's interception probability (p) from 0% to 100% across different qubit block sizes.
