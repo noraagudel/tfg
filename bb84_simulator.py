@@ -3,8 +3,8 @@ from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from scipy.stats import binom
 
-# Inicializamos el simulador cuántico local. 
-# Esto crea un "ordenador cuántico virtual" en tu PC para ejecutar el circuito.
+# Inicializamos el simulador cuántico local
+# Esto crea un "ordenador cuántico virtual" en el PC para ejecutar el circuito
 simulator = AerSimulator()
 
 
@@ -46,11 +46,7 @@ def simulate_bb84_iteration(
     Simula una iteración completa del protocolo BB84 con un perfil de ruido específico.
     """
     
-    # IMPORTANTE: Doblamos el tamaño del QuantumCircuit.
-    # Los qubits [0 a num_qubits-1] son nuestro canal (fibra óptica).
-    # Los qubits [num_qubits a 2*num_qubits-1] son el ENTORNO (espacio vacío con el que se puede entrelazar).
-    # Los bits clásicos se mantienen en num_qubits * 2 (Bob y Eve).
-    qc = QuantumCircuit(num_qubits * 2, num_qubits * 2)
+    qc = QuantumCircuit(num_qubits, num_qubits * 2)
     
     # ---------------------------------------------------------
     # 1. ALICE PREPARA LOS QUBITS

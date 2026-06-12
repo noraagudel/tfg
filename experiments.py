@@ -226,9 +226,6 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
             res = simulate_bb84_iteration(n, p_actual, noise_rate, check_fraction, alpha=0.10)
             
             if res:
-                # -------------------------------------------------------------
-                # LA CLAVE DEL ROC: Guardamos la pista y la verdad, ¡pero no tomamos la decisión final!
-                # -------------------------------------------------------------
                 # Calculamos el porcentaje de error observado en esta ronda
                 tasa_error = res['errors_count'] / res['s_simulacion']
                 
@@ -241,9 +238,6 @@ def experiment_roc_variable_n(qubit_counts, numero_ensayos, intercept_prob, nois
         # Guardamos todas las verdades y todos los scores para este valor de 'n'
         resultados_roc[f"n={n}"] = (y_true, y_scores)
         
-    # La función externa plot_multiple_roc_curves tomará estas dos listas.
-    # Ordenará los scores de mayor a menor e irá moviendo el umbral imaginario 
-    # paso a paso para dibujar la curva.
     plot_multiple_roc_curves(resultados_roc, title=f"Evolución de la Detección según n (Ruido={noise_rate*100}%)")
     plt.savefig('curvas_roc.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -375,7 +369,6 @@ def experiment_realistic_scenario(qubit_counts, numero_ensayos, noise_rate, alph
 
     plt.xlabel('Fraction of Qubits Intercepted by Eve (p)')
     plt.ylabel('Error Rate in Verification (Empirical QBER)')
-    # Title removed
     plt.legend(frameon=True, edgecolor='black')
     plt.savefig('realistic_scenario_error_by_n.pdf')
     plt.show()
@@ -402,7 +395,6 @@ def experiment_realistic_scenario(qubit_counts, numero_ensayos, noise_rate, alph
     plt.ylabel('Probability of Detection (%)')
     plt.xticks(rangos_p)
     plt.yticks(np.arange(0, 105, 10))
-    # Title removed
     plt.legend(frameon=True, edgecolor='black')
     plt.savefig('prob_agrupada_realista.pdf')
     plt.show()
@@ -478,7 +470,7 @@ def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_r
                     noise_rate=noise_rate, 
                     check_fraction=check_fraction, 
                     alpha=alpha, 
-                    noise_profile=prof  # Inyectamos el perfil específico
+                    noise_profile=prof 
                 )
                 
                 if res:
@@ -489,9 +481,6 @@ def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_r
             prob_emp = (detected_count / valid_runs * 100) if valid_runs > 0 else 0.0
             resultados[prof].append(prob_emp)
             
-    # ---------------------------------------------------------
-    # FASE DE DIBUJO: SUPERPOSICIÓN DE LAS 4 CURVAS
-    # ---------------------------------------------------------
     plt.figure(figsize=(10, 6))
     for prof in perfiles:
         plt.plot(p_values, resultados[prof], marker='o', lw=2, 
@@ -505,14 +494,11 @@ def experiment_compare_noise_profiles(n_fixed, numero_ensayos, p_values, noise_r
     plt.tight_layout()
     plt.savefig('comparativa_ruidos.png', dpi=300, bbox_inches='tight')
     plt.show()
-# =====================================================================
-# 3. EL ORQUESTADOR (Donde decides qué estudiar hoy)
-# =====================================================================
 
 
 if __name__ == "__main__":
     
-    CASO_A_ESTUDIAR = "D"
+    CASO_A_ESTUDIAR = "C"
     
     if CASO_A_ESTUDIAR == "A":
         # CASO A: 0% Ruido, 100% Intercepción
@@ -554,7 +540,7 @@ if __name__ == "__main__":
                                  noise_rate=noise, 
                                  intercept_prob=p_eve, 
                                  alpha=alpha_fp)
-        """
+
         experiment_variable_R(n_fixed=16,
                               R_values=[1, 2, 3, 5, 8, 12, 20],
                               numero_ensayos=1000,
@@ -571,7 +557,7 @@ if __name__ == "__main__":
         experiment_roc_variable_n(qubit_counts=[16, 32, 64, 128],
                                   numero_ensayos=1000,
                                   intercept_prob=p_eve,
-                                  noise_rate=noise) """
+                                  noise_rate=noise) 
             
     elif CASO_A_ESTUDIAR == "C":
         # CASO C: 5% Ruido, Eve variable (p)
@@ -582,21 +568,17 @@ if __name__ == "__main__":
         qubit_counts_lista = [16, 32, 64, 128, 256]
         p_valores_lista = np.linspace(0.0, 1.0, 11)  # [0.0, 0.1, 0.2, ..., 1.0]
     
-        #experiment_variable_p_and_n(
-        #    qubit_counts=qubit_counts_lista,
-        #    numero_ensayos=1000,
-        #    p_values=p_valores_lista,
-        #    noise_rate=noise,
-        #    alpha=alpha_fp
-        #)
+        experiment_variable_p_and_n(
+            qubit_counts=qubit_counts_lista,
+            numero_ensayos=1000,
+            p_values=p_valores_lista,
+            noise_rate=noise,
+            alpha=alpha_fp
+        )
 
-        # ---------------------------------------------------------
-        # Generamos el Análisis ROC de Sensibilidad
-        # ---------------------------------------------------------
-        # Seleccionamos un 'n' fuerte (ej. 128) para demostrar su talón de Aquiles
         n_optimo = 128
         
-        # Seleccionamos unos pocos valores de p para que la gráfica quede limpia y clara:
+        # Seleccionamos valores de p
         # 10% (Débil), 30% (Medio), 50% (Peligroso), 100% (Total)
         p_valores_roc = [0.1, 0.3, 0.5, 1.0] 
         
@@ -612,8 +594,6 @@ if __name__ == "__main__":
         noise = 0.05       # 5% de ruido ambiental
         alpha_fp = 0.10    # Subimos alpha al 10% para ser más sensibles y reducir Falsos Negativos
         
-        # Usamos tamaños de qubits más grandes para dar significancia estadística
-        # y que Eve no se escape simplemente por "suerte" en muestras pequeñas.
         qubit_counts_lista = [32, 256] 
         
         experiment_realistic_scenario(
@@ -629,7 +609,6 @@ if __name__ == "__main__":
         alpha_fp = 0.10
         n_optimo = 128
         
-        # Saltos del 20% para que la simulación no tarde mucho
         p_valores_lista = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] 
         
         experiment_compare_noise_profiles(
